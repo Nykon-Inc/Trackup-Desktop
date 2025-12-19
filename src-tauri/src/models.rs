@@ -24,4 +24,6 @@ pub struct Session {
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub is_active: bool,
+    pub idle_seconds: i64,
+    pub deducted_seconds: i64,
 }

@@ -3,18 +3,29 @@ use std::path::PathBuf;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Listener, Manager,
 };
 mod db;
 
+mod idle;
 mod models;
+mod screenshot;
 mod tray_generator;
+
+// ...
+
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+// use std::time::Instant;
+
+use idle::IdleState;
 
 use models::User;
 // we don't need `Project` in lib.rs anymore unless we use it explicitly, but it's part of User.
 
-struct AppState {
-    db_path: PathBuf,
+pub struct AppState {
+    pub db_path: PathBuf,
+    pub idle_state: Arc<IdleState>,
 }
 
 #[tauri::command]
@@ -64,6 +75,10 @@ fn check_auth(app: AppHandle) -> Result<Option<User>, String> {
 
 #[tauri::command]
 fn start_timer(app: AppHandle) -> Result<(), String> {
+    start_timer_internal(&app)
+}
+
+fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
 
@@ -75,6 +90,18 @@ fn start_timer(app: AppHandle) -> Result<(), String> {
             if active.is_none() {
                 db::start_session(&conn, &project_id).map_err(|e| e.to_string())?;
                 update_tray(&app, true, &user.email); // Refresh menu state
+
+                // Enable Idle Monitoring
+                state.idle_state.is_monitoring.store(true, Ordering::SeqCst);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                state
+                    .idle_state
+                    .last_activity_timestamp
+                    .store(now, Ordering::Relaxed);
+
                 let _ = app.emit("timer-active", true);
             }
         }
@@ -84,6 +111,10 @@ fn start_timer(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn stop_timer(app: AppHandle) -> Result<(), String> {
+    stop_timer_internal(&app)
+}
+
+fn stop_timer_internal(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
 
@@ -92,10 +123,76 @@ fn stop_timer(app: AppHandle) -> Result<(), String> {
         if let Some(project_id) = user.current_project_id {
             db::stop_session(&conn, &project_id).map_err(|e| e.to_string())?;
             update_tray(&app, true, &user.email); // Refresh menu state
+
+            // Disable Idle Monitoring
+            state
+                .idle_state
+                .is_monitoring
+                .store(false, Ordering::SeqCst);
+
             let _ = app.emit("timer-active", false);
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+fn process_idle_choice(app: AppHandle, idle_time: i64, keep: bool) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+
+    let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
+    if let Some(user) = user_opt {
+        if let Some(project_id) = user.current_project_id {
+            // Logic:
+            // 1. We assume the session was JUST stopped (because modal is shown).
+            //    So we need to find the latest (closed) session to update.
+            //    Or we could just update "last session for this project".
+
+            // Wait, db::process_idle_time updates "active" session.
+            // BUT we stopped the session!
+            // So we need a new db function or modify process_idle_time to target the latest closed session.
+            // Let's modify db.rs later? Or write a raw query here?
+            // Cleanest is to have db::process_last_session_idle_time
+
+            // For now let's assume we implement `process_last_session_idle_time` in db.rs
+            // Or we check `db.rs` manually.
+
+            // Using a manual update for expediency to match the logic requested:
+            // "if user says discard... subtract idle time from total time... restart timer"
+
+            // Deduct logic:
+            // The session is closed. total_time = end - start - deducted.
+            // We want to increase `deducted` by idle_time if Discard.
+            // We want to increase `idle_seconds` by idle_time if Keep.
+
+            let inc_idle = idle_time;
+            let inc_deducted = if !keep { idle_time } else { 0 };
+
+            conn.execute(
+                "UPDATE sessions 
+                 SET idle_seconds = idle_seconds + ?1, 
+                     deducted_seconds = deducted_seconds + ?2 
+                 WHERE id = (SELECT id FROM sessions WHERE project_id = ?3 ORDER BY start_time DESC LIMIT 1)",
+                (inc_idle, inc_deducted, &project_id),
+            ).map_err(|e| e.to_string())?;
+
+            // Restart Timer
+            start_timer_internal(&app)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn force_quit(_app: AppHandle) {
+    std::process::exit(0);
+}
+
+#[tauri::command]
+fn upload_and_quit(app: AppHandle) {
+    screenshot::upload_pending_screenshots(&app);
+    std::process::exit(0);
 }
 
 fn format_duration(seconds: u64) -> String {
@@ -194,7 +291,7 @@ fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let app_handle = app.handle();
             let app_data_dir = app
@@ -204,14 +301,46 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
             let db_path = app_data_dir.join("auth_v2.db");
 
+            let idle_state = Arc::new(IdleState::new());
+
             app.manage(AppState {
                 db_path: db_path.clone(),
+                idle_state: idle_state.clone(),
             });
 
             // Init DB
             if let Err(e) = db::init_db(&db_path) {
                 eprintln!("Failed to init db: {}", e);
             }
+
+            // Ensure timer is stopped on startup
+            let _ = stop_timer_internal(&app_handle);
+
+            // process pending screenshots on startup
+            screenshot::upload_pending_screenshots(&app_handle);
+
+            // Start Idle Check
+            idle::start_idle_check(app_handle.clone(), idle_state.clone());
+            // Start Screenshot Monitor
+            screenshot::start_screenshot_monitor(app_handle.clone(), idle_state.clone());
+
+            // Listen for Internal Idle Event
+            let app_handle_for_idle = app_handle.clone();
+            app.listen("internal:idle_gap_detected", move |event| {
+                if let Ok(duration) = serde_json::from_str::<u64>(&event.payload()) {
+                    // Logic: Stop Timer -> Show Window -> Emit idle_ended
+                    let _ = stop_timer_internal(&app_handle_for_idle);
+
+                    let app_inner = app_handle_for_idle.clone();
+                    let _ = app_handle_for_idle.run_on_main_thread(move || {
+                        if let Some(window) = app_inner.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app_inner.emit("idle_ended", duration);
+                    });
+                }
+            });
 
             // Initial auth check
             let mut is_logged_in = false;
@@ -348,7 +477,10 @@ pub fn run() {
             check_auth,
             set_current_project,
             start_timer,
-            stop_timer
+            stop_timer,
+            process_idle_choice,
+            force_quit,
+            upload_and_quit
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -356,6 +488,29 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            let state = app_handle.state::<AppState>();
+            let mut has_pending = false;
+            if let Ok(conn) = Connection::open(&state.db_path) {
+                if let Ok(pending) = db::get_pending_screenshots(&conn) {
+                    if !pending.is_empty() {
+                        has_pending = true;
+                    }
+                }
+            }
+
+            if has_pending {
+                api.prevent_exit();
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("request-quit-confirmation", ());
+                }
+            }
+        }
+    });
 }

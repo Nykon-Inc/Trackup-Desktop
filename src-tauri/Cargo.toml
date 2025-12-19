@@ -18,11 +18,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+xcap = "0.0.9"
+webp = "0.3"
+base64 = "0.22"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 image = "0.25.9"
 imageproc = "0.25.0"
@@ -30,3 +37,14 @@ rusttype = "0.9.3"
 ab_glyph = "0.2.32"
 chrono = "0.4.42"
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11 = "2.21.0"

@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Login from "./Login";
 import "./App.css";
+import { IdleModal } from "./components/IdleModal";
+
 
 interface Project {
   id: string;
@@ -198,6 +200,7 @@ function App() {
       <div className="flex-1 flex flex-col bg-gray-50/50">
 
       </div>
+      <IdleModal />
     </div>
   );
 }
