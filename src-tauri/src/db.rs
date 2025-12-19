@@ -21,7 +21,6 @@ const SCHEMA: &[DbTable] = &[
             DbColumn { name: "uuid", def: "TEXT PRIMARY KEY", type_affinity: "TEXT" },
             DbColumn { name: "name", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "email", def: "TEXT NOT NULL", type_affinity: "TEXT" },
-            DbColumn { name: "role", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "token", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "current_project_id", def: "TEXT", type_affinity: "TEXT" },
         ],
@@ -31,11 +30,9 @@ const SCHEMA: &[DbTable] = &[
         name: "projects",
         columns: &[
             DbColumn { name: "id", def: "TEXT NOT NULL", type_affinity: "TEXT" },
-            DbColumn { name: "user_uuid", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "name", def: "TEXT NOT NULL", type_affinity: "TEXT" },
-            DbColumn { name: "role", def: "TEXT NOT NULL", type_affinity: "TEXT" },
         ],
-        constraints: Some("PRIMARY KEY (id, user_uuid), FOREIGN KEY(user_uuid) REFERENCES users(uuid) ON DELETE CASCADE"),
+        constraints: Some("PRIMARY KEY (id)"),
     },
     DbTable {
         name: "sessions",
@@ -120,12 +117,11 @@ pub fn save_user(conn: &mut Connection, user: &User) -> Result<(), rusqlite::Err
 
     // Insert user
     tx.execute(
-        "INSERT INTO users (uuid, name, email, role, token, current_project_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO users (uuid, name, email, token, current_project_id) VALUES (?1, ?2, ?3, ?4, ?5)",
         [
             &user.uuid,
             &user.name,
             &user.email,
-            &user.role,
             &user.token,
             user.current_project_id.as_deref().unwrap_or_default(), 
         ],
@@ -134,8 +130,8 @@ pub fn save_user(conn: &mut Connection, user: &User) -> Result<(), rusqlite::Err
      // Insert projects
      for project in &user.projects {
          tx.execute(
-             "INSERT INTO projects (id, user_uuid, name, role) VALUES (?1, ?2, ?3, ?4)",
-             [&project.id, &user.uuid, &project.name, &project.role],
+             "INSERT INTO projects (id, name) VALUES (?1, ?2)",
+             [&project.id, &project.name],
          )?;
      }
 
@@ -146,6 +142,7 @@ pub fn save_user(conn: &mut Connection, user: &User) -> Result<(), rusqlite::Err
 pub fn clear_user(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute("DELETE FROM projects", [])?;
     conn.execute("DELETE FROM users", [])?;
+    conn.execute("DELETE FROM sessions", [])?;
     Ok(())
 }
 
@@ -262,7 +259,7 @@ pub fn get_today_total_time(conn: &Connection, project_id: &str) -> Result<u64, 
 }
 
 pub fn get_user(conn: &Connection) -> Result<Option<User>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT uuid, name, email, role, token, current_project_id FROM users LIMIT 1")?;
+    let mut stmt = conn.prepare("SELECT uuid, name, email, token, current_project_id FROM users LIMIT 1")?;
     
     let mut user_iter = stmt.query_map([], |row| {
         let uuid: String = row.get(0)?;
@@ -276,23 +273,21 @@ pub fn get_user(conn: &Connection) -> Result<Option<User>, rusqlite::Error> {
 }
 
 fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Result<User, rusqlite::Error> {
-    let mut projects_stmt = conn.prepare("SELECT id, name, role FROM projects WHERE user_uuid = ?1")?;
-    let projects = projects_stmt.query_map([&uuid], |p_row| {
+    let mut projects_stmt = conn.prepare("SELECT id, name FROM projects")?;
+    let projects = projects_stmt.query_map([], |p_row| {
         Ok(Project {
             id: p_row.get(0)?,
             name: p_row.get(1)?,
-            role: p_row.get(2)?,
         })
     })?.collect::<Result<Vec<_>, _>>()?;
     
-    let current_project_id: Option<String> = row.get(5).ok().filter(|s: &String| !s.is_empty());
+    let current_project_id: Option<String> = row.get(4).ok().filter(|s: &String| !s.is_empty());
 
     Ok(User {
         uuid: uuid,
         name: row.get(1)?,
         email: row.get(2)?,
-        role: row.get(3)?,
-        token: row.get(4)?,
+        token: row.get(3)?,
         current_project_id,
         projects,
     })

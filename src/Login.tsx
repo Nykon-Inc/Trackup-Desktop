@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import LoginLayout from "./layouts/LoginLayout";
 import { fadeInBackgroundElements } from "./utils/layoutFunctions";
+import { authenticateUser } from "./services/auth";
 
 export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
     const [email, setEmail] = useState("");
@@ -16,28 +17,17 @@ export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
-        if (!email) return;
-
-        // Simulate getting a full user object from a remote API
-        const user = {
-            uuid: "user-uuid-" + Date.now(),
-            name: email.split('@')[0],
-            email: email,
-            role: "admin",
-            token: "dummy-token-" + Date.now(),
-            current_project_id: null,
-            projects: [
-                { id: "proj-1", name: "Alpha Protocol", role: "lead" },
-                { id: "proj-2", name: "Beta Tester", role: "viewer" }
-            ]
-        };
+        if (!email || !password) return;
 
         try {
-            await invoke("login", { user });
-            onLogin(user);
+            const userPayload = await authenticateUser(email, password);
+            console.log(userPayload)
+            await invoke("login", { user: userPayload });
+            onLogin(userPayload);
         } catch (err) {
             console.error("Login failed", err);
-            alert("Login failed: " + err);
+            const message = err instanceof Error ? err.message : "Unknown error";
+            alert("Login failed: " + message);
         }
     }
 

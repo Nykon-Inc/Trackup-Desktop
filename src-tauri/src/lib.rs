@@ -75,6 +75,7 @@ fn start_timer(app: AppHandle) -> Result<(), String> {
             if active.is_none() {
                 db::start_session(&conn, &project_id).map_err(|e| e.to_string())?;
                 update_tray(&app, true, &user.email); // Refresh menu state
+                let _ = app.emit("timer-active", true);
             }
         }
     }
@@ -91,6 +92,7 @@ fn stop_timer(app: AppHandle) -> Result<(), String> {
         if let Some(project_id) = user.current_project_id {
             db::stop_session(&conn, &project_id).map_err(|e| e.to_string())?;
             update_tray(&app, true, &user.email); // Refresh menu state
+            let _ = app.emit("timer-active", false);
         }
     }
     Ok(())
@@ -248,6 +250,7 @@ pub fn run() {
                     }
                     "logout" => {
                         let _ = logout(app.clone());
+                        let _ = app.emit("logout-user", ());
                     }
                     "start_timer" => {
                         let _ = start_timer(app.clone());
@@ -328,6 +331,9 @@ pub fn run() {
                             let _ = tray.set_icon(Some(icon));
                         }
                     }
+
+                    // Emit time update to Vite app
+                    let _ = app_handle_for_thread.emit("time-update", &time_str);
                 }
             });
 

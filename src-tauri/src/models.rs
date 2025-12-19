@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 pub struct Project {
     pub id: String,
     pub name: String,
-    pub role: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -12,7 +11,6 @@ pub struct User {
     pub uuid: String,
     pub name: String,
     pub email: String,
-    pub role: String,
     pub token: String,
     pub projects: Vec<Project>,
     pub current_project_id: Option<String>,
