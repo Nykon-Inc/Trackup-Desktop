@@ -41,6 +41,8 @@ fn login(app: AppHandle, user: User) -> Result<(), String> {
     db::save_user(&mut conn, &user).map_err(|e| e.to_string())?;
 
     update_tray(&app, true, &user.email);
+    // Sync Daily Sessions from server
+    screenshot::sync_daily_sessions(&app);
     Ok(())
 }
 
@@ -101,6 +103,10 @@ fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
                     .idle_state
                     .last_activity_timestamp
                     .store(now, Ordering::Relaxed);
+
+                // Reset Activity Counts for new session
+                state.idle_state.keyboard_count.store(0, Ordering::Relaxed);
+                state.idle_state.mouse_count.store(0, Ordering::Relaxed);
 
                 let _ = app.emit("timer-active", true);
             }
@@ -318,6 +324,8 @@ pub fn run() {
 
             // process pending screenshots on startup
             screenshot::upload_pending_screenshots(&app_handle);
+            // Sync Daily Sessions from server
+            screenshot::sync_daily_sessions(&app_handle);
 
             // Start Idle Check
             idle::start_idle_check(app_handle.clone(), idle_state.clone());
@@ -333,11 +341,13 @@ pub fn run() {
 
                     let app_inner = app_handle_for_idle.clone();
                     let _ = app_handle_for_idle.run_on_main_thread(move || {
-                        if let Some(window) = app_inner.get_webview_window("main") {
+                        if let Some(window) = app_inner.get_webview_window("idle") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            // Emit to specific window or global?
+                            // Global emit handles it for now, React component in IdleWindow listens.
+                            let _ = app_inner.emit("idle_ended", duration);
                         }
-                        let _ = app_inner.emit("idle_ended", duration);
                     });
                 }
             });
@@ -450,7 +460,11 @@ pub fn run() {
                     if should_update_db {
                         if let Some(sid) = active_session_id {
                             if let Ok(conn) = Connection::open(&state.db_path) {
-                                let _ = db::update_session_heartbeat(&conn, sid);
+                                let k_count =
+                                    state.idle_state.keyboard_count.load(Ordering::Relaxed) as i64;
+                                let m_count =
+                                    state.idle_state.mouse_count.load(Ordering::Relaxed) as i64;
+                                let _ = db::update_session_heartbeat(&conn, sid, k_count, m_count);
                             }
                         }
                     }
@@ -505,10 +519,12 @@ pub fn run() {
 
             if has_pending {
                 api.prevent_exit();
-                if let Some(window) = app_handle.get_webview_window("main") {
+                if let Some(window) = app_handle.get_webview_window("quit") {
                     let _ = window.show();
                     let _ = window.set_focus();
-                    let _ = window.emit("request-quit-confirmation", ());
+                    // We don't need to emit "request-quit-confirmation", the QuitWindow just appears.
+                    // But if we want to pass data or trigger something, we could.
+                    // The QuitWindow component invokes "upload_and_quit" on confirmation.
                 }
             }
         }

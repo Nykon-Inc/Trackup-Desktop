@@ -45,6 +45,9 @@ const SCHEMA: &[DbTable] = &[
             DbColumn { name: "is_active", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
             DbColumn { name: "idle_seconds", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
             DbColumn { name: "deducted_seconds", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
+            DbColumn { name: "keyboard_events", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
+            DbColumn { name: "mouse_events", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
+            DbColumn { name: "status", def: "TEXT DEFAULT 'pending'", type_affinity: "TEXT" },
         ],
         constraints: None,
     },
@@ -175,9 +178,36 @@ use crate::models::Session;
 use chrono::Local;
 use uuid::Uuid;
 
+pub fn get_session_by_uuid(conn: &Connection, uuid: &str) -> Result<Option<Session>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
+         FROM sessions 
+         WHERE uuid = ?1"
+    )?;
+    
+    let mut rows = stmt.query([uuid])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Session {
+            id: Some(row.get(0)?),
+            uuid: row.get(1)?,
+            project_id: row.get(2)?,
+            start_time: row.get(3)?,
+            end_time: row.get(4)?,
+            is_active: row.get(5)?,
+            idle_seconds: row.get(6)?,
+            deducted_seconds: row.get(7)?,
+            status: row.get(8)?,
+            keyboard_events: row.get(9)?,
+            mouse_events: row.get(10)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn get_active_session(conn: &Connection, project_id: &str) -> Result<Option<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds 
+        "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
          FROM sessions 
          WHERE project_id = ?1 AND is_active = 1 
          LIMIT 1"
@@ -194,6 +224,9 @@ pub fn get_active_session(conn: &Connection, project_id: &str) -> Result<Option<
             is_active: row.get(5)?,
             idle_seconds: row.get(6)?,
             deducted_seconds: row.get(7)?,
+            status: row.get(8)?,
+            keyboard_events: row.get(9)?,
+            mouse_events: row.get(10)?,
         }))
     } else {
         Ok(None)
@@ -201,18 +234,18 @@ pub fn get_active_session(conn: &Connection, project_id: &str) -> Result<Option<
 }
 
 pub fn start_session(conn: &Connection, project_id: &str) -> Result<(), rusqlite::Error> {
-    let start_time = Local::now().timestamp();
+    let start_time = Local::now().timestamp_millis();
     let uuid = Uuid::new_v4().to_string();
     println!("DB: Starting session for project {}, uuid {}", project_id, uuid);
     conn.execute(
-        "INSERT INTO sessions (uuid, project_id, start_time, is_active, idle_seconds, deducted_seconds) VALUES (?1, ?2, ?3, 1, 0, 0)",
+        "INSERT INTO sessions (uuid, project_id, start_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) VALUES (?1, ?2, ?3, 1, 0, 0, 'pending', 0, 0)",
         (uuid, project_id, start_time),
     )?;
     Ok(())
 }
 
 pub fn stop_session(conn: &Connection, project_id: &str) -> Result<(), rusqlite::Error> {
-    let end_time = Local::now().timestamp();
+    let end_time = Local::now().timestamp_millis();
     println!("DB: Stopping session for project {}", project_id);
     let updated = conn.execute(
         "UPDATE sessions SET is_active = 0, end_time = ?1 WHERE project_id = ?2 AND is_active = 1",
@@ -222,13 +255,49 @@ pub fn stop_session(conn: &Connection, project_id: &str) -> Result<(), rusqlite:
     Ok(())
 }
 
-pub fn update_session_heartbeat(conn: &Connection, session_id: i64) -> Result<(), rusqlite::Error> {
-    // We update end_time to now, effectively tracking "up to now" duration.
-    // This is useful if the app crashes, we know the last heartbeat time.
-    let now = Local::now().timestamp();
+pub fn create_imported_session(conn: &Connection, session: &crate::models::SyncSession) -> Result<(), rusqlite::Error> {
+    println!("DB: Importing session {}", session.uuid);
     conn.execute(
-        "UPDATE sessions SET end_time = ?1 WHERE id = ?2",
-        (now, session_id),
+        "INSERT INTO sessions (uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'done', 0, 0)",
+        (   
+            &session.uuid, 
+            &session.project_id, 
+            session.start_time, 
+            session.end_time,
+            session.is_active,
+            session.idle_seconds,
+            session.deducted_seconds
+        ),
+    )?;
+    Ok(())
+}
+
+pub fn update_imported_session(conn: &Connection, session: &crate::models::SyncSession) -> Result<(), rusqlite::Error> {
+    println!("DB: Updating imported session {}", session.uuid);
+    conn.execute(
+        "UPDATE sessions 
+         SET start_time = ?1, end_time = ?2, is_active = ?3, idle_seconds = ?4, deducted_seconds = ?5, status = 'done'
+         WHERE uuid = ?6",
+        (
+            session.start_time,
+            session.end_time,
+            session.is_active,
+            session.idle_seconds,
+            session.deducted_seconds,
+            &session.uuid
+        ),
+    )?;
+    Ok(())
+}
+
+pub fn update_session_heartbeat(conn: &Connection, session_id: i64, keyboard_events: i64, mouse_events: i64) -> Result<(), rusqlite::Error> {
+    // We update end_time to now, effectively tracking "up to now" duration.
+    // Also update activity counts
+    let now = Local::now().timestamp_millis();
+    conn.execute(
+        "UPDATE sessions SET end_time = ?1, keyboard_events = ?2, mouse_events = ?3 WHERE id = ?4",
+        (now, keyboard_events, mouse_events, session_id),
     )?;
 
     Ok(())
@@ -237,10 +306,10 @@ pub fn update_session_heartbeat(conn: &Connection, session_id: i64) -> Result<()
 pub fn get_today_total_time(conn: &Connection, project_id: &str) -> Result<u64, rusqlite::Error> {
     // Get start of today (local time)
     let now = Local::now();
-    let start_of_day = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap().timestamp();
+    let start_of_day = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap().timestamp_millis();
     
     // Sum duration of closed sessions
-    // Duration = end_time - start_time - deducted_seconds
+    // Duration = (end_time - start_time) / 1000 - deducted_seconds
     // Filter by start_time >= start_of_day
     let mut stmt = conn.prepare(
         "SELECT start_time, end_time, is_active, deducted_seconds 
@@ -248,7 +317,7 @@ pub fn get_today_total_time(conn: &Connection, project_id: &str) -> Result<u64, 
          WHERE project_id = ?1 AND start_time >= ?2"
     )?;
     
-    let current_ts = now.timestamp();
+    let current_ts_millis = now.timestamp_millis();
     let mut total_seconds: u64 = 0;
     
     let rows = stmt.query_map([project_id, &start_of_day.to_string()], |row| {
@@ -261,27 +330,30 @@ pub fn get_today_total_time(conn: &Connection, project_id: &str) -> Result<u64, 
 
     for r in rows {
         let (start, end, active, deducted) = r?;
-        let mut session_duration: i64 = 0;
+        let mut session_duration_millis: i64 = 0;
 
         if active {
-             if current_ts > start {
-                 session_duration = current_ts - start;
+             if current_ts_millis > start {
+                 session_duration_millis = current_ts_millis - start;
              }
         } else {
              if let Some(e) = end {
                  if e > start {
-                     session_duration = e - start;
+                     session_duration_millis = e - start;
                  }
              }
         }
 
+        // Convert millis to seconds
+        let mut session_duration_seconds = session_duration_millis / 1000;
+
         // Subtract deducted seconds (ensure we don't go negative)
-        session_duration = session_duration - deducted;
-        if session_duration < 0 {
-            session_duration = 0;
+        session_duration_seconds = session_duration_seconds - deducted;
+        if session_duration_seconds < 0 {
+            session_duration_seconds = 0;
         }
 
-        total_seconds += session_duration as u64;
+        total_seconds += session_duration_seconds as u64;
     }
 
     Ok(total_seconds)
@@ -303,7 +375,7 @@ pub fn get_user(conn: &Connection) -> Result<Option<User>, rusqlite::Error> {
 }
 
 pub fn save_pending_screenshot(conn: &Connection, session_uuid: &str, project_id: &str, image_data: &str) -> Result<(), rusqlite::Error> {
-    let timestamp = Local::now().timestamp();
+    let timestamp = Local::now().timestamp_millis();
     conn.execute(
         "INSERT INTO pending_screenshots (session_uuid, project_id, timestamp, image_data) VALUES (?1, ?2, ?3, ?4)",
         (session_uuid, project_id, timestamp, image_data),
@@ -330,10 +402,6 @@ pub fn get_pending_screenshots(conn: &Connection) -> Result<Vec<(i64, String, St
     Ok(result)
 }
 
-pub fn delete_pending_screenshot(conn: &Connection, id: i64) -> Result<(), rusqlite::Error> {
-    conn.execute("DELETE FROM pending_screenshots WHERE id = ?1", [id])?;
-    Ok(())
-}
 
 fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Result<User, rusqlite::Error> {
     let mut projects_stmt = conn.prepare("SELECT id, name FROM projects")?;
@@ -355,3 +423,34 @@ fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Re
         projects,
     })
 }
+
+pub fn get_pending_sessions(conn: &Connection) -> Result<Vec<Session>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
+         FROM sessions 
+         WHERE (is_active = 0 AND status = 'pending') OR is_active = 1"
+    )?;
+    
+    let rows = stmt.query_map([], |row| {
+        Ok(Session {
+            id: Some(row.get(0)?),
+            uuid: row.get(1)?,
+            project_id: row.get(2)?,
+            start_time: row.get(3)?,
+            end_time: row.get(4)?,
+            is_active: row.get(5)?,
+            idle_seconds: row.get(6)?,
+            deducted_seconds: row.get(7)?,
+            status: row.get(8)?,
+            keyboard_events: row.get(9)?,
+            mouse_events: row.get(10)?,
+        })
+    })?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+

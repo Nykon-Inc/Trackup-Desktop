@@ -23,7 +23,7 @@ export interface Project {
 }
 
 interface LoginResponse {
-    user: User;
+    account: User;
     credentials: {
         access: {
             token: string;
@@ -43,29 +43,29 @@ export const authenticateUser = async (email: string, password: string) => {
         password
     });
 
-    const { user, credentials } = authResponse.data;
+    const { account, credentials } = authResponse.data;
     const token = credentials.access.token;
 
     // 2. Call to base_url/v1/projects using the token
-    const projectsResponse = await api.get<Project[]>('/v1/projects', {
+    const projectsResponse = await api.get<{ results: Project[] }>('/v1/projects', {
         headers: {
             Authorization: `Bearer ${token}`
         }
     });
-
-    const projects = projectsResponse.data;
+    console.log(projectsResponse.data.results)
+    const projects = projectsResponse.data.results;
     const project = projects[0];
     // 3. Construct the payload
     // We combine the user data, the token, and the projects list.
     // We also map 'id' to 'uuid' if the backend expects it, but we'll keep the spread clean.
     const payload = {
-        name: user.name,
-        email: user.email,
+        name: account.name,
+        email: account.email,
         token,
         projects: projects.map(e => ({ name: e.name, id: e.id })),
         // We can add a derived field for existing logic if needed, 
         // but for now we basically merge the info.
-        uuid: user.id, // For compatibility with typical frontend usage if it expects uuid
+        uuid: account.id, // For compatibility with typical frontend usage if it expects uuid
         current_project_id: project?.id ?? null,
     };
 

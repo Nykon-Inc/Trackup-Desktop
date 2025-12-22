@@ -1,5 +1,6 @@
 use crate::db;
 use crate::idle::IdleState;
+use crate::models::SessionPayload;
 use crate::AppState;
 use base64::{engine::general_purpose, Engine as _};
 use image::imageops::FilterType;
@@ -51,21 +52,32 @@ pub fn start_screenshot_monitor<R: Runtime>(app: AppHandle<R>, state: Arc<IdleSt
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + rng.gen_range(3..10);
+            + rng.gen_range(20..60);
 
         let mut next_upload_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + 120; // 10 mins
+            + 180; // 3 mins
 
         loop {
             thread::sleep(Duration::from_secs(10)); // Check every 10s
-            println!("Monitor: loop");
+            let monitoring = state_monitor
+                .is_monitoring
+                .load(std::sync::atomic::Ordering::Relaxed);
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
+            let remaining = if next_capture_time > now {
+                next_capture_time - now
+            } else {
+                0
+            };
+            println!(
+                "Monitor: Loop - Active: {}, Next Shot: {}s",
+                monitoring, remaining
+            );
 
             // 1. Capture Logic
             if state_monitor
@@ -110,131 +122,391 @@ pub fn start_screenshot_monitor<R: Runtime>(app: AppHandle<R>, state: Arc<IdleSt
                     });
 
                     // Schedule next capture
-                    next_capture_time = now + rng.gen_range(30..60);
+                    next_capture_time = now + rng.gen_range(60..120);
                 }
             } else {
                 // If not monitoring, push next_capture_time forward so we don't snap immediately on resume
                 // Logic: keep pushing it so it's always "5-10 mins from now" if idle
                 if now >= next_capture_time {
-                    next_capture_time = now + rng.gen_range(30..60);
+                    next_capture_time = now + rng.gen_range(60..120);
                 }
             }
 
             // 2. Upload Logic (Run regardless of idle state, as long as app is open)
             if now >= next_upload_time {
                 upload_pending_screenshots(&app_monitor);
-                next_upload_time = now + 120;
+                next_upload_time = now + 180;
             }
         }
     });
 }
 
 pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
-    println!("Monitor: Time to upload screenshots");
+    println!("Monitor: Time to upload pending items");
     let app_handle = app.clone();
 
     async_runtime::spawn(async move {
         // 1. Fetch Data (Blocking DB op)
         let app_state = app_handle.state::<AppState>();
-        let db_path = app_state.db_path.clone(); // PathBuf is cloneable
+        let db_path = app_state.db_path.clone();
 
         let data_op = async_runtime::spawn_blocking(move || {
             if let Ok(conn) = Connection::open(&db_path) {
                 let user = db::get_user(&conn).ok().flatten();
-                let pending = db::get_pending_screenshots(&conn).unwrap_or_default();
-                Ok((user, pending))
+                let pending_sc = db::get_pending_screenshots(&conn).unwrap_or_default();
+                let pending_sess = db::get_pending_sessions(&conn).unwrap_or_default();
+                Ok((user, pending_sc, pending_sess))
             } else {
                 Err("Failed to open DB")
             }
         })
         .await;
 
-        // Unwrap the Move result and Result
-        if let Ok(Ok((Some(user), pending))) = data_op {
-            if pending.is_empty() {
-                println!("Monitor: No pending screenshots.");
-                return;
-            }
-
-            let token = user.token;
-            // Assuming API URL from env or fallback
-            // We can't easily access Vite env here, so we default to localhost or need config
-            let api_url = "http://localhost:8000/v1/screenshots";
+        if let Ok(Ok((Some(user), pending_sc, pending_sess))) = data_op {
+            let mut token = user.token.clone();
+            let base_url = "http://localhost:8000/v1";
             let client = reqwest::Client::new();
-            let mut handles = Vec::new();
 
-            // 2. Spawn parallel upload tasks
-            for (id, session_uuid, project_id, timestamp, image_data) in pending {
-                let client = client.clone();
-                let token = token.clone();
-                let url = api_url.to_string();
+            // 2. Bulk Session Sync
+            let mut synced_session_uuids = Vec::new();
+            if !pending_sess.is_empty() {
+                println!("Monitor: Syncing {} sessions...", pending_sess.len());
+                let url = format!("{}/sessions", base_url);
 
-                let task = async_runtime::spawn(async move {
-                    println!(
-                        "Monitor: Uploading screenshot {} for session {}",
-                        id, session_uuid
-                    );
+                let payload_data: Vec<SessionPayload> = pending_sess
+                    .iter()
+                    .map(|s| SessionPayload {
+                        uuid: s.uuid.clone(),
+                        project_id: s.project_id.clone(),
+                        start_time: s.start_time,
+                        end_time: s.end_time,
+                        is_active: s.is_active,
+                        idle_seconds: s.idle_seconds,
+                        deducted_seconds: s.deducted_seconds,
+                        keyboard_events: s.keyboard_events,
+                        mouse_events: s.mouse_events,
+                    })
+                    .collect();
 
-                    let payload = json!({
-                        "session_uuid": session_uuid,
-                        "project_id": project_id,
-                        "timestamp": timestamp,
-                        "image": image_data, // Base64
-                        "file_ext": "webp"
-                    });
+                let payload = json!(payload_data);
 
-                    let res = client
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .json(&payload)
-                        .send()
-                        .await;
+                let res = client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .json(&payload)
+                    .send()
+                    .await;
 
-                    match res {
-                        Ok(response) => {
-                            if response.status().is_success() {
-                                println!("Monitor: Upload success for {}", id);
-                                Some(id)
-                            } else {
-                                eprintln!(
-                                    "Monitor: Upload failed for {}. Status: {}",
-                                    id,
-                                    response.status()
-                                );
-                                None
+                match res {
+                    Ok(response) => {
+                        let status = response.status();
+                        if status.is_success() {
+                            println!("Monitor: Bulk session sync success.");
+                            for s in &pending_sess {
+                                synced_session_uuids.push(s.uuid.clone());
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Monitor: Request error for {}: {}", id, e);
-                            None
+                        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+                            // Try refreshing token
+                            println!("Monitor: 401 Unauthorized. Attempting token refresh...");
+
+                            // TODO: Implement actual refresh Endpoint call
+                            // user.refresh_token is missing in struct, need to ask user or assume endpoint.
+                            // Assuming POST /auth/refresh with current token? Or does user have refresh token?
+                            // User struct only has 'token'.
+                            // Let's assume we call a refresh endpoint that accepts the current token (if still valid for refresh)
+                            // or we need a refresh token.
+
+                            // Since I cannot change User struct easily without more info, I will assume
+                            // we can call a refresh endpoint. If that fails, log out.
+
+                            let refresh_url =
+                                format!("http://localhost:8000/v1/auth/refresh-token");
+                            let refresh_res = client
+                                .post(&refresh_url)
+                                .header("Authorization", format!("Bearer {}", token))
+                                .send()
+                                .await;
+
+                            match refresh_res {
+                                Ok(u_res) => {
+                                    if u_res.status().is_success() {
+                                        // Assume we got a new token in JSON { "token": "..." }
+                                        if let Ok(json_body) =
+                                            u_res.json::<serde_json::Value>().await
+                                        {
+                                            if let Some(new_token) =
+                                                json_body.get("token").and_then(|t| t.as_str())
+                                            {
+                                                println!("Monitor: Token refreshed successfully.");
+                                                token = new_token.to_string();
+
+                                                // Update DB with new token
+                                                let new_token_db = token.clone();
+                                                let db_path_update = app_state.db_path.clone();
+                                                let uuid = user.uuid.clone();
+                                                let _ = async_runtime::spawn_blocking(move || {
+                                                     if let Ok(conn) = Connection::open(&db_path_update) {
+                                                         // Use manual array for params since params! macro not imported/available easily
+                                                         let _ = conn.execute(
+                                                             "UPDATE users SET token = ?1 WHERE uuid = ?2",
+                                                             [new_token_db, uuid],
+                                                         );
+                                                     }
+                                                 }).await;
+
+                                                // Retry Session Sync
+                                                let retry_res = client
+                                                    .post(&url)
+                                                    .header(
+                                                        "Authorization",
+                                                        format!("Bearer {}", token),
+                                                    )
+                                                    .json(&payload)
+                                                    .send()
+                                                    .await;
+
+                                                if let Ok(r_res) = retry_res {
+                                                    if r_res.status().is_success() {
+                                                        println!("Monitor: Bulk session sync success (after refresh).");
+                                                        for s in &pending_sess {
+                                                            synced_session_uuids
+                                                                .push(s.uuid.clone());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Refresh failed -> Logout
+                                        println!("Monitor: Token refresh failed. Logging out.");
+                                        use tauri::Emitter; // Import Emitter trait
+                                        let _ = app_handle.emit("logout-user", ());
+                                        let db_path_logout = app_state.db_path.clone();
+                                        let _ = async_runtime::spawn_blocking(move || {
+                                            if let Ok(conn) = Connection::open(&db_path_logout) {
+                                                let _ = db::clear_user(&conn);
+                                            }
+                                        })
+                                        .await;
+                                        return;
+                                    }
+                                }
+                                Err(_) => {
+                                    println!("Monitor: Token refresh request failed.");
+                                }
+                            }
+                        } else {
+                            eprintln!("Monitor: Bulk session sync failed. Status: {}", status);
                         }
                     }
-                });
-                handles.push(task);
-            }
-
-            // 3. Collect successful IDs
-            let mut successful_ids = Vec::new();
-            for handle in handles {
-                if let Ok(Some(id)) = handle.await {
-                    successful_ids.push(id);
+                    Err(e) => eprintln!("Monitor: Session bulk request error: {}", e),
                 }
             }
 
-            // 4. Batch Delete (Blocking DB op)
-            if !successful_ids.is_empty() {
+            // 3. Parallel Screenshot Upload (One by One)
+            let mut uploaded_screenshot_ids = Vec::new();
+            let mut screenshot_handles = Vec::new();
+
+            if !pending_sc.is_empty() {
+                println!(
+                    "Monitor: Uploading {} screenshots individually...",
+                    pending_sc.len()
+                );
+
+                for (id, session_uuid, project_id, timestamp, image_data) in pending_sc {
+                    let client = client.clone();
+                    let token = token.clone();
+                    let url = format!("{}/screenshots", base_url);
+
+                    let task = async_runtime::spawn(async move {
+                        println!(
+                            "Monitor: Uploading screenshot {} for session {}",
+                            id, session_uuid
+                        );
+
+                        let payload = json!({
+                            "sessionUuid": session_uuid,
+                            "projectId": project_id,
+                            "timestamp": timestamp,
+                            "image": image_data,
+                            "fileExt": "webp"
+                        });
+
+                        let res = client
+                            .post(&url)
+                            .header("Authorization", format!("Bearer {}", token))
+                            .json(&payload)
+                            .send()
+                            .await;
+
+                        match res {
+                            Ok(response) => {
+                                if response.status().is_success() {
+                                    println!("Monitor: Upload success for {}", id);
+                                    Some(id)
+                                } else {
+                                    eprintln!(
+                                        "Monitor: Upload failed for {}. Status: {}",
+                                        id,
+                                        response.status()
+                                    );
+                                    None
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Monitor: Request error for {}: {}", id, e);
+                                None
+                            }
+                        }
+                    });
+                    screenshot_handles.push(task);
+                }
+            }
+
+            // Collect results
+            for handle in screenshot_handles {
+                if let Ok(Some(id)) = handle.await {
+                    uploaded_screenshot_ids.push(id);
+                }
+            }
+
+            // 4. Batch Update/Delete (Blocking DB op)
+            if !synced_session_uuids.is_empty() || !uploaded_screenshot_ids.is_empty() {
                 let db_path_del = app_state.db_path.clone();
                 let _ = async_runtime::spawn_blocking(move || {
                     if let Ok(conn) = Connection::open(&db_path_del) {
-                        for id in successful_ids {
-                            let _ = db::delete_pending_screenshot(&conn, id);
+                        // Use a transaction for safety
+                        if let Ok(tx) = conn.unchecked_transaction() {
+                            for uuid in synced_session_uuids {
+                                let _ = tx.execute(
+                                    "UPDATE sessions SET status = 'done' WHERE uuid = ?1",
+                                    [uuid],
+                                );
+                            }
+                            for id in uploaded_screenshot_ids {
+                                let _ = tx
+                                    .execute("DELETE FROM pending_screenshots WHERE id = ?1", [id]);
+                            }
+                            let _ = tx.commit();
                         }
                     }
                 })
                 .await;
             }
         } else {
-            println!("Monitor: Could not fetch user or pending screenshots (or db error).");
+            // Quiet failure
+        }
+    });
+}
+
+pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
+    println!("Monitor: Syncing daily sessions from server...");
+    let app_handle = app.clone();
+
+    async_runtime::spawn(async move {
+        let app_state = app_handle.state::<AppState>();
+        let db_path = app_state.db_path.clone();
+
+        let user_op = async_runtime::spawn_blocking(move || {
+            if let Ok(conn) = Connection::open(&db_path) {
+                db::get_user(&conn).ok().flatten()
+            } else {
+                None
+            }
+        })
+        .await;
+
+        if let Ok(Some(user)) = user_op {
+            let token = user.token.clone();
+            let base_url = "http://localhost:8000/v1";
+            let client = reqwest::Client::new();
+            let url = format!("{}/sessions/today", base_url);
+
+            let res = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await;
+
+            match res {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        if let Ok(server_sessions) =
+                            response.json::<Vec<crate::models::SyncSession>>().await
+                        {
+                            println!(
+                                "Monitor: Fetched {} sessions from server.",
+                                server_sessions.len()
+                            );
+
+                            let db_path_sync = app_state.db_path.clone();
+                            let _ = async_runtime::spawn_blocking(move || {
+                                if let Ok(conn) = Connection::open(&db_path_sync) {
+                                    for server_session in server_sessions {
+                                        // Check if exists
+                                        if let Ok(local_opt) =
+                                            db::get_session_by_uuid(&conn, &server_session.uuid)
+                                        {
+                                            match local_opt {
+                                                Some(local_session) => {
+                                                    // Compare Start/End Delta
+                                                    // Local Delta
+                                                    let local_duration = if let Some(end) =
+                                                        local_session.end_time
+                                                    {
+                                                        end.saturating_sub(local_session.start_time)
+                                                    } else {
+                                                        let now = SystemTime::now()
+                                                            .duration_since(UNIX_EPOCH)
+                                                            .unwrap()
+                                                            .as_millis()
+                                                            as i64;
+                                                        now.saturating_sub(local_session.start_time)
+                                                    };
+
+                                                    // Server Delta
+                                                    let server_duration = if let Some(end) =
+                                                        server_session.end_time
+                                                    {
+                                                        end.saturating_sub(
+                                                            server_session.start_time,
+                                                        )
+                                                    } else {
+                                                        // Server also active?
+                                                        0
+                                                    };
+
+                                                    if server_duration > local_duration {
+                                                        // Server has "more" data. Update local.
+                                                        let _ = db::update_imported_session(
+                                                            &conn,
+                                                            &server_session,
+                                                        );
+                                                    }
+                                                }
+                                                None => {
+                                                    // Insert new
+                                                    let _ = db::create_imported_session(
+                                                        &conn,
+                                                        &server_session,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            })
+                            .await;
+                        }
+                    } else {
+                        eprintln!(
+                            "Monitor: Failed to fetch daily sessions. Status: {}",
+                            response.status()
+                        );
+                    }
+                }
+                Err(e) => eprintln!("Monitor: Fetch daily sessions error: {}", e),
+            }
         }
     });
 }

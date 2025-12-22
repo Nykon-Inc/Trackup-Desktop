@@ -12,9 +12,31 @@
   "app": {
     "windows": [
       {
-        "title": "desktop",
+        "label": "main",
+        "title": "StaffWatch",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "url": "/"
+      },
+      {
+        "label": "idle",
+        "title": "Idle Detection",
+        "width": 500,
+        "height": 400,
+        "url": "/idle",
+        "visible": false,
+        "center": true,
+        "resizable": false
+      },
+      {
+        "label": "quit",
+        "title": "Pending Uploads",
+        "width": 400,
+        "height": 300,
+        "url": "/quit",
+        "visible": false,
+        "center": true,
+        "resizable": false
       }
     ],
     "security": {

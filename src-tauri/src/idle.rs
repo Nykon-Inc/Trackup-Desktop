@@ -7,6 +7,8 @@ use tauri::{AppHandle, Emitter, Runtime};
 pub struct IdleState {
     pub last_activity_timestamp: AtomicU64,
     pub is_monitoring: AtomicBool,
+    pub keyboard_count: AtomicU64,
+    pub mouse_count: AtomicU64,
 }
 
 impl IdleState {
@@ -18,6 +20,8 @@ impl IdleState {
         Self {
             last_activity_timestamp: AtomicU64::new(now),
             is_monitoring: AtomicBool::new(false),
+            keyboard_count: AtomicU64::new(0),
+            mouse_count: AtomicU64::new(0),
         }
     }
 }
@@ -52,7 +56,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
         CGEventTapPlacement::HeadInsertEventTap,
         CGEventTapOptions::Default,
         events,
-        move |_, _, _| {
+        move |_proxy, type_, _event| {
             // Only process if monitoring
             if !state.is_monitoring.load(Ordering::Relaxed) {
                 return None;
@@ -65,11 +69,19 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
 
             let last = state.last_activity_timestamp.swap(now, Ordering::Relaxed);
 
-            // Avoid logic if last was 0 or excessively old (initialization state)
-            // But we initialize to `now`, so it should be fine.
+            // Simple counting since we have event type
+            match type_ {
+                CGEventType::KeyDown => {
+                    state.keyboard_count.fetch_add(1, Ordering::Relaxed);
+                }
+                CGEventType::LeftMouseDown | CGEventType::MouseMoved => {
+                    state.mouse_count.fetch_add(1, Ordering::Relaxed);
+                }
+                _ => {}
+            }
 
             let diff = now.saturating_sub(last);
-            if diff >= 60 * 5 {
+            if diff >= 300 {
                 // 5 Minutes
                 let app_inner = app.clone();
                 // Notify main thread
@@ -104,7 +116,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
     let mut last_tick = 0;
 
     loop {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(100));
 
         if !state.is_monitoring.load(Ordering::Relaxed) {
             continue;
@@ -120,10 +132,11 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                 let current_tick = lii.dwTime;
                 if current_tick != last_tick && last_tick != 0 {
                     // Activity Detected!
-                    // Calculate local gap?
-                    // Actually GetLastInputInfo is system uptime.
-                    // Diff between current real time and last recorded time?
-                    // No, `state.last_activity_timestamp` is our own tracking.
+                    // On Windows, GetLastInputInfo doesn't tell us KEY vs MOUSE.
+                    // We will just increment mouse_count as a generic "activity" counter for now
+                    // or split it evenly? Let's just do mouse_count to be safe/lazy or maybe both?
+                    // Better: just increment mouse_count.
+                    state.mouse_count.fetch_add(1, Ordering::Relaxed);
 
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -147,13 +160,6 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
 
 #[cfg(target_os = "linux")]
 fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
-    // Linux X11 Polling implementation using low-level x11 crate or just shelling out?
-    // Shelling out to `xprintidle` is common but depends on user installing it.
-    // Pure Rust X11 polling is complicated without `x11rb` or similar.
-    // I added `x11` crate.
-
-    // Using x11 crate to query XScreenSaver.
-
     use std::ptr;
     use x11::xlib;
     use x11::xss;
@@ -170,7 +176,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
         let mut last_idle_ms = 0;
 
         loop {
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(std::time::Duration::from_millis(500));
             if !state.is_monitoring.load(Ordering::Relaxed) {
                 continue;
             }
@@ -181,6 +187,8 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
             // If idle_ms DROPPED significantly, it means activity happened.
             if idle_ms < last_idle_ms && last_idle_ms > 1000 {
                 // Activity!
+                state.mouse_count.fetch_add(1, Ordering::Relaxed);
+
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
@@ -198,7 +206,5 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
 
             last_idle_ms = idle_ms;
         }
-
-        // xlib::XCloseDisplay(display); // Loop never ends
     }
 }

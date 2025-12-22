@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Routes, Route } from "react-router-dom";
 import Login from "./Login";
 import "./App.css";
-import { IdleModal } from "./components/IdleModal";
-
+import { IdleWindow } from "./components/IdleWindow";
+import { QuitWindow } from "./components/QuitWindow";
 
 interface Project {
   id: string;
@@ -20,7 +21,7 @@ interface User {
   current_project_id?: string;
 }
 
-function App() {
+function MainWindow() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionTime, setSessionTime] = useState("--:--:--");
@@ -126,7 +127,6 @@ function App() {
 
           <div className="flex items-center justify-between w-full mt-8 text-xs text-gray-400 font-medium px-2">
             <span>No limits</span>
-            {/* Logic for "Today" could be derived, but static for now or maybe duplicate sessionTime if we assume it's today's total */}
             <span>Today: {sessionTime === "--:--:--" ? "0:00" : sessionTime.split(':').slice(0, 2).join(':')}</span>
           </div>
         </div>
@@ -179,7 +179,7 @@ function App() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-semibold text-gray-700 leading-tight">{user.name}</span>
-                  <span className="text-[10px] text-gray-400 leading-tight">Free Plan</span>
+                  <span className="text-sm text-gray-400 leading-tight">Free Plan</span>
                 </div>
               </div>
               <button
@@ -200,8 +200,17 @@ function App() {
       <div className="flex-1 flex flex-col bg-gray-50/50">
 
       </div>
-      <IdleModal />
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<MainWindow />} />
+      <Route path="/idle" element={<IdleWindow />} />
+      <Route path="/quit" element={<QuitWindow />} />
+    </Routes>
   );
 }
 
