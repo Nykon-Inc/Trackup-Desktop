@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Routes, Route } from "react-router-dom";
@@ -27,10 +27,53 @@ function MainWindow() {
   const [loading, setLoading] = useState(true);
   const [sessionTime, setSessionTime] = useState("--:--:--");
   const [isActive, setIsActive] = useState(false);
+  const [projectTimes, setProjectTimes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     checkAuth();
+    // ... logic to update times
+    const interval = setInterval(updateProjectTimes, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
 
+  useEffect(() => {
+    if (user) {
+      updateProjectTimes();
+    }
+  }, [user, sessionTime]); // Update when user loads or global timer ticks (optional, maybe overkill to do on every sec, but good for "active" project)
+
+  async function updateProjectTimes() {
+    if (!user) return;
+    const times: Record<string, string> = {};
+
+    // Parallel fetch could be better but simple loop is fine for few projects
+    for (const p of user.projects) {
+      try {
+        const t = await invoke<string>("get_project_today_total", { projectId: p.id });
+        times[p.id] = t;
+      } catch (e) {
+        console.error("Failed to fetch time for project", p.name, e);
+        times[p.id] = "00:00:00";
+      }
+    }
+    setProjectTimes(times);
+  }
+
+  const totalToday = useMemo(() => {
+    let totalSeconds = 0;
+    Object.values(projectTimes).forEach(timeStr => {
+      const parts = timeStr.split(':').map(Number);
+      if (parts.length === 3) {
+        totalSeconds += parts[0] * 3600 + parts[1] * 60 + parts[2];
+      }
+    });
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    return `${h}:${m.toString().padStart(2, '0')}`;
+  }, [projectTimes]);
+
+  useEffect(() => {
+    // Listeners setup only
     const unlistenLogin = listen("request-login", () => checkAuth());
     const unlistenLogout = listen("logout-user", () => checkAuth());
     const unlistenTime = listen<string>("time-update", (event) => {
@@ -103,6 +146,15 @@ function MainWindow() {
     }
   }
 
+  const sortedProjects = useMemo(() => {
+    if (!user || !user.projects) return [];
+    return [...user.projects].sort((a, b) => {
+      if (a.id === user.current_project_id) return -1;
+      if (b.id === user.current_project_id) return 1;
+      return 0;
+    });
+  }, [user]);
+
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
 
   if (!user) {
@@ -144,7 +196,7 @@ function MainWindow() {
 
           <div className="flex items-center justify-between w-full mt-8 text-xs text-gray-400 font-medium px-2">
             <span>No limits</span>
-            <span>Today: {sessionTime === "--:--:--" ? "0:00" : sessionTime.split(':').slice(0, 2).join(':')}</span>
+            <span>Today: {totalToday}</span>
           </div>
         </div>
 
@@ -167,8 +219,10 @@ function MainWindow() {
             <div className="px-3 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
               My Projects
             </div>
+
+
             <div className="space-y-0.5">
-              {user.projects.map(p => (
+              {sortedProjects.map(p => (
                 <div
                   key={p.id}
                   onClick={() => handleProjectSelect(p.id)}
@@ -181,6 +235,9 @@ function MainWindow() {
                       <div className="w-1.5 h-1.5 opacity-0 group-hover:opacity-100 rounded-full bg-gray-300 shrink-0 transition-opacity" />
                     )}
                     <span className="truncate text-sm font-medium">{p.name}</span>
+                  </div>
+                  <div className="text-xs text-gray-400 font-medium ml-2">
+                    {projectTimes[p.id]?.split(':').slice(0, 2).join(':') || '0:00'}
                   </div>
                 </div>
               ))}

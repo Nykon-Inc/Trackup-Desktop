@@ -62,6 +62,19 @@ const SCHEMA: &[DbTable] = &[
         ],
         constraints: None,
     },
+    DbTable {
+        name: "activity_logs",
+        columns: &[
+             DbColumn { name: "id", def: "INTEGER PRIMARY KEY AUTOINCREMENT", type_affinity: "INTEGER" },
+             DbColumn { name: "session_uuid", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+             DbColumn { name: "project_id", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+             DbColumn { name: "timestamp", def: "INTEGER NOT NULL", type_affinity: "INTEGER" },
+             DbColumn { name: "app_name", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+             DbColumn { name: "window_title", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+             DbColumn { name: "url", def: "TEXT", type_affinity: "TEXT" },
+        ],
+        constraints: None,
+    },
 ];
 
 pub fn init_db(path: &PathBuf) -> Result<Connection, rusqlite::Error> {
@@ -383,6 +396,38 @@ pub fn save_pending_screenshot(conn: &Connection, session_uuid: &str, project_id
     Ok(())
 }
 
+pub fn save_activity_log(conn: &Connection, session_uuid: &str, project_id: &str, app_name: &str, window_title: &str, url: Option<&str>) -> Result<(), rusqlite::Error> {
+    let timestamp = Local::now().timestamp_millis();
+    conn.execute(
+        "INSERT INTO activity_logs (session_uuid, project_id, timestamp, app_name, window_title, url) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        (session_uuid, project_id, timestamp, app_name, window_title, url),
+    )?;
+    Ok(())
+}
+
+pub fn get_activity_logs_for_session(conn: &Connection, session_uuid: &str) -> Result<Vec<crate::models::ActivityLog>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT session_uuid, project_id, timestamp, app_name, window_title, url FROM activity_logs WHERE session_uuid = ?1")?;
+    let rows = stmt.query_map([session_uuid], |row| {
+        Ok(crate::models::ActivityLog {
+            timestamp: row.get(2)?,
+            app_name: row.get(3)?,
+            window_title: row.get(4)?,
+            url: row.get(5)?,
+        })
+    })?;
+    
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+pub fn delete_activity_logs_for_session(conn: &Connection, session_uuid: &str) -> Result<(), rusqlite::Error> {
+    conn.execute("DELETE FROM activity_logs WHERE session_uuid = ?1", [session_uuid])?;
+    Ok(())
+}
+
 pub fn get_pending_screenshots(conn: &Connection) -> Result<Vec<(i64, String, String, i64, String)>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT id, session_uuid, project_id, timestamp, image_data FROM pending_screenshots")?;
     let rows = stmt.query_map([], |row| {
@@ -427,8 +472,7 @@ fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Re
 pub fn get_pending_sessions(conn: &Connection) -> Result<Vec<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
-         FROM sessions 
-         WHERE (is_active = 0 AND status = 'pending') OR is_active = 1"
+         FROM sessions"
     )?;
     
     let rows = stmt.query_map([], |row| {

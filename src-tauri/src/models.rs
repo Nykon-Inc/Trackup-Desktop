@@ -38,6 +38,15 @@ fn default_status() -> String {
     "pending".to_string()
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityLog {
+    pub timestamp: i64,
+    pub app_name: String,
+    pub window_title: String,
+    pub url: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionPayload {
@@ -50,6 +59,7 @@ pub struct SessionPayload {
     pub deducted_seconds: i64,
     pub keyboard_events: i64,
     pub mouse_events: i64,
+    pub activity_logs: Vec<ActivityLog>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

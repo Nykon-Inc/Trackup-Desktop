@@ -8,6 +8,7 @@ use tauri::{
 };
 mod db;
 
+mod activity;
 mod idle;
 mod models;
 mod screenshot;
@@ -202,6 +203,15 @@ fn upload_and_quit(app: AppHandle) {
     std::process::exit(0);
 }
 
+#[tauri::command]
+fn get_project_today_total(app: AppHandle, project_id: String) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+
+    let total_secs = db::get_today_total_time(&conn, &project_id).map_err(|e| e.to_string())?;
+    Ok(format_duration(total_secs))
+}
+
 fn format_duration(seconds: u64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
@@ -332,6 +342,8 @@ pub fn run() {
             idle::start_idle_check(app_handle.clone(), idle_state.clone());
             // Start Screenshot Monitor
             screenshot::start_screenshot_monitor(app_handle.clone(), idle_state.clone());
+            // Start Activity Monitor
+            activity::start_activity_monitor(app_handle.clone(), idle_state.clone());
 
             // Listen for Internal Idle Event
             let app_handle_for_idle = app_handle.clone();
@@ -518,7 +530,8 @@ pub fn run() {
             stop_timer,
             process_idle_choice,
             force_quit,
-            upload_and_quit
+            upload_and_quit,
+            get_project_today_total
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

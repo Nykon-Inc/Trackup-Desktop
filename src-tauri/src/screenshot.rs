@@ -155,14 +155,22 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                 let user = db::get_user(&conn).ok().flatten();
                 let pending_sc = db::get_pending_screenshots(&conn).unwrap_or_default();
                 let pending_sess = db::get_pending_sessions(&conn).unwrap_or_default();
-                Ok((user, pending_sc, pending_sess))
+
+                let mut session_logs = std::collections::HashMap::new();
+                for sess in &pending_sess {
+                    if let Ok(logs) = db::get_activity_logs_for_session(&conn, &sess.uuid) {
+                        session_logs.insert(sess.uuid.clone(), logs);
+                    }
+                }
+
+                Ok((user, pending_sc, pending_sess, session_logs))
             } else {
                 Err("Failed to open DB")
             }
         })
         .await;
 
-        if let Ok(Ok((Some(user), pending_sc, pending_sess))) = data_op {
+        if let Ok(Ok((Some(user), pending_sc, pending_sess, session_logs))) = data_op {
             let mut token = user.token.clone();
             let base_url = "http://localhost:8000/v1";
             let client = reqwest::Client::new();
@@ -185,6 +193,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                         deducted_seconds: s.deducted_seconds,
                         keyboard_events: s.keyboard_events,
                         mouse_events: s.mouse_events,
+                        activity_logs: session_logs.get(&s.uuid).cloned().unwrap_or_default(),
                     })
                     .collect();
 
@@ -380,8 +389,9 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                             for uuid in synced_session_uuids {
                                 let _ = tx.execute(
                                     "UPDATE sessions SET status = 'done' WHERE uuid = ?1",
-                                    [uuid],
+                                    [&uuid],
                                 );
+                                let _ = db::delete_activity_logs_for_session(&tx, &uuid);
                             }
                             for id in uploaded_screenshot_ids {
                                 let _ = tx
