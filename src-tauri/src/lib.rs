@@ -1,3 +1,4 @@
+use chrono::Local;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use tauri::{
@@ -430,8 +431,31 @@ pub fn run() {
                                 if let Ok(Some(session)) =
                                     db::get_active_session(&conn, &project_id)
                                 {
-                                    should_update_db = true;
-                                    active_session_id = session.id;
+                                    // Check if session exceeds 10 minutes (600s * 1000ms)
+                                    let now_ms = Local::now().timestamp_millis();
+                                    let duration = now_ms - session.start_time;
+
+                                    if duration >= 10 * 60 * 1000 {
+                                        // Stop current session
+                                        let _ = db::stop_session(&conn, &project_id);
+                                        // Start new session
+                                        let _ = db::start_session(&conn, &project_id);
+
+                                        // Reset activity counts for the new session
+                                        state.idle_state.keyboard_count.store(0, Ordering::Relaxed);
+                                        state.idle_state.mouse_count.store(0, Ordering::Relaxed);
+
+                                        // Refresh active session info
+                                        if let Ok(Some(new_session)) =
+                                            db::get_active_session(&conn, &project_id)
+                                        {
+                                            should_update_db = true;
+                                            active_session_id = new_session.id;
+                                        }
+                                    } else {
+                                        should_update_db = true;
+                                        active_session_id = session.id;
+                                    }
 
                                     // Calculate total time
                                     if let Ok(total) = db::get_today_total_time(&conn, &project_id)

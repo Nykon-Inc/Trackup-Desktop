@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Routes, Route } from "react-router-dom";
 import Login from "./Login";
+import { fetchProjects } from "./services/auth";
 import "./App.css";
 import { IdleWindow } from "./components/IdleWindow";
 import { QuitWindow } from "./components/QuitWindow";
@@ -50,7 +51,23 @@ function MainWindow() {
 
   async function checkAuth() {
     try {
-      const user = await invoke<User | null>("check_auth");
+      let user = await invoke<User | null>("check_auth");
+      if (user && user.token) {
+        try {
+          // Fetch fresh projects
+          console.log(user.token)
+          const fetchedProjects = await fetchProjects(user.token);
+          const mappedProjects = fetchedProjects.map(p => ({ id: p.id, name: p.name }));
+
+          // Update user object
+          user = { ...user, projects: mappedProjects };
+
+          // Persist valid projects to DB
+          await invoke("login", { user });
+        } catch (e) {
+          console.error("Failed to refresh projects in background", e);
+        }
+      }
       setUser(user);
     } catch (err) {
       console.error("Auth check failed", err);
