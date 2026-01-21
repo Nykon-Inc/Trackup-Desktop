@@ -68,7 +68,7 @@ export const authenticateUser = async (email: string, password: string) => {
 };
 
 export const fetchProjects = async (token: string) => {
-    const projectsResponse = await api.get<{ results: Project[] }>('/v1/projects', {
+    const projectsResponse = await api.get<{ results: Project[] }>('/v1/client/projects', {
         headers: {
             Authorization: `Bearer ${token}`
         }

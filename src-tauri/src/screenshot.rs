@@ -179,7 +179,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
             let mut synced_session_uuids = Vec::new();
             if !pending_sess.is_empty() {
                 println!("Monitor: Syncing {} sessions...", pending_sess.len());
-                let url = format!("{}/sessions", base_url);
+                let url = format!("{}/client/sessions", base_url);
 
                 let payload_data: Vec<SessionPayload> = pending_sess
                     .iter()
@@ -325,7 +325,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                 for (id, session_uuid, project_id, timestamp, image_data) in pending_sc {
                     let client = client.clone();
                     let token = token.clone();
-                    let url = format!("{}/screenshots", base_url);
+                    let url = format!("{}/client/screenshots", base_url);
 
                     let task = async_runtime::spawn(async move {
                         println!(
@@ -430,7 +430,7 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
             let token = user.token.clone();
             let base_url = "http://localhost:8000/v1";
             let client = reqwest::Client::new();
-            let url = format!("{}/sessions/today", base_url);
+            let url = format!("{}/client/sessions/today", base_url);
 
             let res = client
                 .get(&url)
