@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://trackup.staging-api.nykon.cloud';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -68,9 +68,10 @@ export const authenticateUser = async (email: string, password: string) => {
 };
 
 export const fetchProjects = async (token: string) => {
-    const projectsResponse = await api.get<{ results: Project[] }>('/v1/client/projects', {
+    const projectsResponse = await api.get<{ results: Project[] }>(`/v1/desktop/projects?projectType=trackup`, {
         headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            'x-app-source': 'desktop'
         }
     });
     return projectsResponse.data.results;

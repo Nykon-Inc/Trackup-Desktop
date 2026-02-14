@@ -172,7 +172,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
 
         if let Ok(Ok((Some(user), pending_sc, pending_sess, session_logs))) = data_op {
             let mut token = user.token.clone();
-            let base_url = "http://localhost:8000/v1";
+            let base_url = "https://trackup.staging-api.nykon.cloud/v1";
             let client = reqwest::Client::new();
 
             // 2. Bulk Session Sync
@@ -228,8 +228,9 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                             // Since I cannot change User struct easily without more info, I will assume
                             // we can call a refresh endpoint. If that fails, log out.
 
-                            let refresh_url =
-                                format!("http://localhost:8000/v1/auth/refresh-token");
+                            let refresh_url = format!(
+                                "https://trackup.staging-api.nykon.cloud/v1/auth/refresh-token"
+                            );
                             let refresh_res = client
                                 .post(&refresh_url)
                                 .header("Authorization", format!("Bearer {}", token))
@@ -428,7 +429,7 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
 
         if let Ok(Some(user)) = user_op {
             let token = user.token.clone();
-            let base_url = "http://localhost:8000/v1";
+            let base_url = "https://trackup.staging-api.nykon.cloud/v1";
             let client = reqwest::Client::new();
             let url = format!("{}/client/sessions/today", base_url);
 
