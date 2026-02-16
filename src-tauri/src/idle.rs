@@ -41,6 +41,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
     use core_foundation::runloop::{kCFRunLoopDefaultMode, CFRunLoop};
     use core_graphics::event::{
         CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
+        CallbackResult, EventField,
     };
 
     let current_loop = CFRunLoop::get_current();
@@ -59,7 +60,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
         move |_proxy, type_, _event| {
             // Only process if monitoring
             if !state.is_monitoring.load(Ordering::Relaxed) {
-                return None;
+                return CallbackResult::Keep;
             }
 
             let now = SystemTime::now()
@@ -74,9 +75,27 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                 CGEventType::KeyDown => {
                     state.keyboard_count.fetch_add(1, Ordering::Relaxed);
                 }
-                CGEventType::LeftMouseDown | CGEventType::MouseMoved => {
+
+                CGEventType::LeftMouseDown => {
+                    // clicks are always meaningful
                     state.mouse_count.fetch_add(1, Ordering::Relaxed);
                 }
+
+                CGEventType::MouseMoved => {
+                    let dx = _event
+                        .get_integer_value_field(EventField::MOUSE_EVENT_DELTA_X)
+                        .abs();
+
+                    let dy = _event
+                        .get_integer_value_field(EventField::MOUSE_EVENT_DELTA_Y)
+                        .abs();
+
+                    // Ignore micro jitter, count only real movement
+                    if dx + dy >= 20 {
+                        state.mouse_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+
                 _ => {}
             }
 
@@ -90,13 +109,13 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                 });
             }
 
-            None
+            CallbackResult::Keep
         },
     )
     .expect("Failed to create Event Tap. Check Accessibility Permissions.");
 
     let source = tap
-        .mach_port
+        .mach_port()
         .create_runloop_source(0)
         .expect("Failed to create RunLoop source");
 
