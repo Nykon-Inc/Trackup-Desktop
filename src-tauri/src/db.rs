@@ -472,7 +472,8 @@ fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Re
 pub fn get_pending_sessions(conn: &Connection) -> Result<Vec<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, uuid, project_id, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
-         FROM sessions"
+         FROM sessions
+         WHERE status = 'pending'"
     )?;
     
     let rows = stmt.query_map([], |row| {

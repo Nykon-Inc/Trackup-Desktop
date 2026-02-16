@@ -9,6 +9,9 @@ pub struct IdleState {
     pub is_monitoring: AtomicBool,
     pub keyboard_count: AtomicU64,
     pub mouse_count: AtomicU64,
+
+    pub is_capture_loop_running: AtomicBool,
+    pub is_activity_loop_running: AtomicBool,
 }
 
 impl IdleState {
@@ -22,6 +25,9 @@ impl IdleState {
             is_monitoring: AtomicBool::new(false),
             keyboard_count: AtomicU64::new(0),
             mouse_count: AtomicU64::new(0),
+
+            is_capture_loop_running: AtomicBool::new(false),
+            is_activity_loop_running: AtomicBool::new(false),
         }
     }
 }

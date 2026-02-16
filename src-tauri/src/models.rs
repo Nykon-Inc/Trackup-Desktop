@@ -59,7 +59,8 @@ pub struct SessionPayload {
     pub deducted_seconds: i64,
     pub keyboard_events: i64,
     pub mouse_events: i64,
-    pub activity_logs: Vec<ActivityLog>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_logs: Option<Vec<ActivityLog>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

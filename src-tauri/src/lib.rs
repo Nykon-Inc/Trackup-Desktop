@@ -110,6 +110,10 @@ fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
                 state.idle_state.keyboard_count.store(0, Ordering::Relaxed);
                 state.idle_state.mouse_count.store(0, Ordering::Relaxed);
 
+                // Start Monitoring Loops (If not already running)
+                screenshot::start_capture_loop(app.clone(), state.idle_state.clone());
+                activity::start_activity_loop(app.clone(), state.idle_state.clone());
+
                 let _ = app.emit("timer-active", true);
             }
         }
@@ -338,12 +342,11 @@ pub fn run() {
             // Sync Daily Sessions from server
             screenshot::sync_daily_sessions(&app_handle);
 
-            // Start Idle Check
+            // Start Idle Check (Event Tap)
             idle::start_idle_check(app_handle.clone(), idle_state.clone());
-            // Start Screenshot Monitor
-            screenshot::start_screenshot_monitor(app_handle.clone(), idle_state.clone());
-            // Start Activity Monitor
-            activity::start_activity_monitor(app_handle.clone(), idle_state.clone());
+            // Start Permanent Sync Loop (screenshots and sessions)
+            screenshot::start_screenshot_monitor(app_handle.clone());
+            // (Capture and Activity loops only start when timer is ON)
 
             // Listen for Internal Idle Event
             let app_handle_for_idle = app_handle.clone();
@@ -423,6 +426,14 @@ pub fn run() {
             tray_builder.build(app)?;
 
             update_tray(&app_handle, is_logged_in, &email);
+
+            if is_logged_in {
+                let app_handle_clone = app_handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    let _ = app_handle_clone.emit("request-login", ());
+                });
+            }
 
             // Spawn a thread to update the tray icon every second
             let app_handle_for_thread = app_handle.clone();

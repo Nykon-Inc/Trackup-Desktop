@@ -41,101 +41,86 @@ pub fn capture_screen() -> Result<String, String> {
     Ok(b64)
 }
 
-pub fn start_screenshot_monitor<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
+pub fn start_screenshot_monitor<R: Runtime>(app: AppHandle<R>) {
+    // 1. Permanent Sync Loop (Runs every 3 mins regardless of timer)
+    let app_sync = app.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(180));
+        upload_pending_screenshots(&app_sync);
+    });
+}
+
+pub fn start_capture_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
+    // Ensure only one loop runs
+    if state
+        .is_capture_loop_running
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
+
     let app_monitor = app.clone();
     let state_monitor = state.clone();
 
     thread::spawn(move || {
+        println!("Monitor: Starting Capture Loop");
         let mut rng = rand::thread_rng();
-        // Initial random delay 5-10 mins
         let mut next_capture_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
             + rng.gen_range(20..60);
 
-        let mut next_upload_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 180; // 3 mins
-
         loop {
-            thread::sleep(Duration::from_secs(10)); // Check every 10s
-            let monitoring = state_monitor
+            thread::sleep(Duration::from_secs(10));
+
+            // EXIT LOOP if monitoring stopped
+            if !state_monitor
                 .is_monitoring
-                .load(std::sync::atomic::Ordering::Relaxed);
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                println!("Monitor: Stopping Capture Loop (Inactive)");
+                state_monitor
+                    .is_capture_loop_running
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                break;
+            }
+
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let remaining = if next_capture_time > now {
-                next_capture_time - now
-            } else {
-                0
-            };
-            println!(
-                "Monitor: Loop - Active: {}, Next Shot: {}s",
-                monitoring, remaining
-            );
 
-            // 1. Capture Logic
-            if state_monitor
-                .is_monitoring
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                if now >= next_capture_time {
-                    println!("Monitor: Time to capture screenshot");
+            if now >= next_capture_time {
+                println!("Monitor: Time to capture screenshot");
 
-                    // Dispatch to Main Thread for Capture
-                    let app_inner = app_monitor.clone();
-                    let _ = app_monitor.run_on_main_thread(move || {
-                        // Access DB to get active session
-                        let app_state = app_inner.state::<AppState>();
-                        if let Ok(conn) = Connection::open(&app_state.db_path) {
-                            if let Ok(Some(user)) = db::get_user(&conn) {
-                                if let Some(pid) = user.current_project_id {
-                                    if let Ok(Some(session)) = db::get_active_session(&conn, &pid) {
-                                        // Capture
-                                        match capture_screen() {
-                                            Ok(b64) => {
-                                                if let Err(e) = db::save_pending_screenshot(
-                                                    &conn,
-                                                    &session.uuid,
-                                                    &pid,
-                                                    &b64,
-                                                ) {
-                                                    eprintln!(
-                                                        "Monitor: Failed to save screenshot: {}",
-                                                        e
-                                                    );
-                                                } else {
-                                                    println!("Monitor: Screenshot saved.");
-                                                }
-                                            }
-                                            Err(e) => eprintln!("Monitor: Capture failed: {}", e),
+                let app_inner = app_monitor.clone();
+
+                let _ = app_monitor.run_on_main_thread(move || {
+                    let app_state = app_inner.state::<AppState>();
+                    if let Ok(conn) = Connection::open(&app_state.db_path) {
+                        if let Ok(Some(user)) = db::get_user(&conn) {
+                            if let Some(pid) = user.current_project_id {
+                                if let Ok(Some(session)) = db::get_active_session(&conn, &pid) {
+                                    match capture_screen() {
+                                        Ok(b64) => {
+                                            let _ = db::save_pending_screenshot(
+                                                &conn,
+                                                &session.uuid,
+                                                &pid,
+                                                &b64,
+                                            );
+                                            println!("Monitor: Screenshot saved.");
                                         }
+                                        Err(e) => eprintln!("Monitor: Capture failed: {}", e),
                                     }
                                 }
                             }
                         }
-                    });
+                    }
+                });
 
-                    // Schedule next capture
-                    next_capture_time = now + rng.gen_range(60..120);
-                }
-            } else {
-                // If not monitoring, push next_capture_time forward so we don't snap immediately on resume
-                // Logic: keep pushing it so it's always "5-10 mins from now" if idle
-                if now >= next_capture_time {
-                    next_capture_time = now + rng.gen_range(60..120);
-                }
-            }
-
-            // 2. Upload Logic (Run regardless of idle state, as long as app is open)
-            if now >= next_upload_time {
-                upload_pending_screenshots(&app_monitor);
-                next_upload_time = now + 180;
+                next_capture_time = now + rng.gen_range(60..120);
             }
         }
     });
@@ -183,17 +168,20 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
 
                 let payload_data: Vec<SessionPayload> = pending_sess
                     .iter()
-                    .map(|s| SessionPayload {
-                        uuid: s.uuid.clone(),
-                        project_id: s.project_id.clone(),
-                        start_time: s.start_time,
-                        end_time: s.end_time,
-                        is_active: s.is_active,
-                        idle_seconds: s.idle_seconds,
-                        deducted_seconds: s.deducted_seconds,
-                        keyboard_events: s.keyboard_events,
-                        mouse_events: s.mouse_events,
-                        activity_logs: session_logs.get(&s.uuid).cloned().unwrap_or_default(),
+                    .map(|s| {
+                        let logs = session_logs.get(&s.uuid).cloned().unwrap_or_default();
+                        SessionPayload {
+                            uuid: s.uuid.clone(),
+                            project_id: s.project_id.clone(),
+                            start_time: s.start_time,
+                            end_time: s.end_time,
+                            is_active: s.is_active,
+                            idle_seconds: s.idle_seconds,
+                            deducted_seconds: s.deducted_seconds,
+                            keyboard_events: s.keyboard_events,
+                            mouse_events: s.mouse_events,
+                            activity_logs: if logs.is_empty() { None } else { Some(logs) },
+                        }
                     })
                     .collect();
 
@@ -212,7 +200,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                         if status.is_success() {
                             println!("Monitor: Bulk session sync success.");
                             for s in &pending_sess {
-                                synced_session_uuids.push(s.uuid.clone());
+                                synced_session_uuids.push((s.uuid.clone(), s.is_active));
                             }
                         } else if status == reqwest::StatusCode::UNAUTHORIZED {
                             // Try refreshing token
@@ -279,8 +267,10 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                                                     if r_res.status().is_success() {
                                                         println!("Monitor: Bulk session sync success (after refresh).");
                                                         for s in &pending_sess {
-                                                            synced_session_uuids
-                                                                .push(s.uuid.clone());
+                                                            synced_session_uuids.push((
+                                                                s.uuid.clone(),
+                                                                s.is_active,
+                                                            ));
                                                         }
                                                     }
                                                 }
@@ -387,12 +377,14 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                     if let Ok(conn) = Connection::open(&db_path_del) {
                         // Use a transaction for safety
                         if let Ok(tx) = conn.unchecked_transaction() {
-                            for uuid in synced_session_uuids {
-                                let _ = tx.execute(
-                                    "UPDATE sessions SET status = 'done' WHERE uuid = ?1",
-                                    [&uuid],
-                                );
-                                let _ = db::delete_activity_logs_for_session(&tx, &uuid);
+                            for (uuid, is_active) in synced_session_uuids {
+                                if !is_active {
+                                    let _ = tx.execute(
+                                        "UPDATE sessions SET status = 'done' WHERE uuid = ?1",
+                                        [&uuid],
+                                    );
+                                    let _ = db::delete_activity_logs_for_session(&tx, &uuid);
+                                }
                             }
                             for id in uploaded_screenshot_ids {
                                 let _ = tx

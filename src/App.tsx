@@ -30,7 +30,6 @@ function MainWindow() {
   const [projectTimes, setProjectTimes] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    checkAuth();
     // ... logic to update times
     const interval = setInterval(updateProjectTimes, 60000); // Update every minute
     return () => clearInterval(interval);
@@ -74,6 +73,7 @@ function MainWindow() {
 
   useEffect(() => {
     // Listeners setup only
+    checkAuth()
     const unlistenLogin = listen("request-login", () => checkAuth());
     const unlistenLogout = listen("logout-user", () => checkAuth());
     const unlistenTime = listen<string>("time-update", (event) => {
