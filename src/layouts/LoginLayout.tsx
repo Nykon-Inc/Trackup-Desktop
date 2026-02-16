@@ -7,7 +7,7 @@ export default function LoginLayout({
 }>) {
     return (
         <Suspense>
-            <main className="w-screen bg-linear-to-r from-[#0a448f] to-[#23a1da] h-screen absolute overflow-hidden">
+            <main className="w-screen bg-linear-to-b from-gray-900 to-black h-screen absolute overflow-hidden">
                 <div className="h-full w-full absolute top-0 left-0">
                     <div className="h-full w-full relative">
                         <div

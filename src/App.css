@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --color-primary: oklch(0.205 0 0);
+}
+
 .logo.vite:hover {
   filter: drop-shadow(0 0 2em #747bff);
 }

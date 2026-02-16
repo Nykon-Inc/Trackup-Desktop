@@ -12,6 +12,7 @@ pub struct User {
     pub name: String,
     pub email: String,
     pub token: String,
+    pub refresh_token: Option<String>,
     pub projects: Vec<Project>,
     pub current_project_id: Option<String>,
 }

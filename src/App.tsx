@@ -18,6 +18,7 @@ interface User {
   name: string;
   email: string;
   token: string;
+  refresh_token?: string;
   projects: Project[];
   current_project_id?: string;
 }
@@ -164,12 +165,12 @@ function MainWindow() {
   const currentProject = user.projects.find(p => p.id === user.current_project_id) || user.projects[0];
 
   return (
-    <div className="flex h-screen bg-white text-gray-800 font-sans selection:bg-blue-100">
+    <div className="flex h-screen bg-white text-gray-800 font-sans selection:bg-primary/10">
       {/* Sidebar */}
       <div className="w-80 shrink-0 border-r border-gray-200 flex flex-col bg-white">
         {/* Timer Section */}
         <div className="p-6 flex flex-col items-center border-b border-gray-100">
-          <div className="bg-gray-800 text-white px-6 py-2 rounded-full text-3xl font-mono font-bold mb-4 tracking-wider shadow-sm">
+          <div className="bg-primary text-white px-6 py-2 rounded-full text-3xl font-mono font-bold mb-4 tracking-wider shadow-sm">
             {sessionTime === "--:--:--" ? "00:00:00" : sessionTime}
           </div>
 
@@ -179,7 +180,7 @@ function MainWindow() {
 
           <button
             onClick={toggleTimer}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-xl active:scale-95 cursor-pointer ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-xl active:scale-95 cursor-pointer ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-primary hover:opacity-90'}`}
           >
             {isActive ? (
               // Stop Icon
@@ -207,7 +208,7 @@ function MainWindow() {
               <input
                 type="text"
                 placeholder="Search projects"
-                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-transparent rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-transparent rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
               />
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -226,11 +227,11 @@ function MainWindow() {
                 <div
                   key={p.id}
                   onClick={() => handleProjectSelect(p.id)}
-                  className={`group flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ${user.current_project_id === p.id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                  className={`group flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ${user.current_project_id === p.id ? 'bg-primary/5 text-primary' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   <div className="flex items-center gap-2 overflow-hidden">
                     {user.current_project_id === p.id ? (
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
                     ) : (
                       <div className="w-1.5 h-1.5 opacity-0 group-hover:opacity-100 rounded-full bg-gray-300 shrink-0 transition-opacity" />
                     )}

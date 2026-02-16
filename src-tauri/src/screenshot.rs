@@ -205,50 +205,70 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                         } else if status == reqwest::StatusCode::UNAUTHORIZED {
                             // Try refreshing token
                             println!("Monitor: 401 Unauthorized. Attempting token refresh...");
-
-                            // TODO: Implement actual refresh Endpoint call
-                            // user.refresh_token is missing in struct, need to ask user or assume endpoint.
-                            // Assuming POST /auth/refresh with current token? Or does user have refresh token?
-                            // User struct only has 'token'.
-                            // Let's assume we call a refresh endpoint that accepts the current token (if still valid for refresh)
-                            // or we need a refresh token.
-
-                            // Since I cannot change User struct easily without more info, I will assume
-                            // we can call a refresh endpoint. If that fails, log out.
-
-                            let refresh_url = format!(
-                                "https://trackup.staging-api.nykon.cloud/v1/auth/refresh-token"
-                            );
-                            let refresh_res = client
-                                .post(&refresh_url)
-                                .header("Authorization", format!("Bearer {}", token))
-                                .send()
-                                .await;
+                            // Use refresh_token if available
+                            let refresh_url = format!("{}/auth/refresh-tokens", base_url);
+                            let refresh_res = match &user.refresh_token {
+                                Some(rt) => {
+                                    client
+                                        .post(&refresh_url)
+                                        .json(&json!({ "refreshToken": rt }))
+                                        .send()
+                                        .await
+                                }
+                                None => {
+                                    // Fallback to old attempt or just fail
+                                    client
+                                        .post(&refresh_url)
+                                        .header("Authorization", format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                }
+                            };
 
                             match refresh_res {
                                 Ok(u_res) => {
                                     if u_res.status().is_success() {
-                                        // Assume we got a new token in JSON { "token": "..." }
+                                        // Assume we got new tokens: { "access": { "token": "..." }, "refresh": { "token": "..." } }
+                                        // Or a simpler format. Let's handle both or common one.
                                         if let Ok(json_body) =
                                             u_res.json::<serde_json::Value>().await
                                         {
-                                            if let Some(new_token) =
-                                                json_body.get("token").and_then(|t| t.as_str())
-                                            {
+                                            let new_access = json_body
+                                                .get("access")
+                                                .and_then(|a| a.get("token"))
+                                                .and_then(|t| t.as_str())
+                                                .or_else(|| {
+                                                    json_body.get("token").and_then(|t| t.as_str())
+                                                });
+
+                                            let new_refresh = json_body
+                                                .get("refresh")
+                                                .and_then(|r| r.get("token"))
+                                                .and_then(|t| t.as_str());
+
+                                            if let Some(new_token) = new_access {
                                                 println!("Monitor: Token refreshed successfully.");
                                                 token = new_token.to_string();
 
                                                 // Update DB with new token
                                                 let new_token_db = token.clone();
+                                                let new_refresh_db =
+                                                    new_refresh.map(|s| s.to_string());
                                                 let db_path_update = app_state.db_path.clone();
                                                 let uuid = user.uuid.clone();
                                                 let _ = async_runtime::spawn_blocking(move || {
                                                      if let Ok(conn) = Connection::open(&db_path_update) {
-                                                         // Use manual array for params since params! macro not imported/available easily
-                                                         let _ = conn.execute(
-                                                             "UPDATE users SET token = ?1 WHERE uuid = ?2",
-                                                             [new_token_db, uuid],
-                                                         );
+                                                         if let Some(rt) = new_refresh_db {
+                                                             let _ = conn.execute(
+                                                                 "UPDATE users SET token = ?1, refresh_token = ?2 WHERE uuid = ?3",
+                                                                 [new_token_db, rt, uuid],
+                                                             );
+                                                         } else {
+                                                             let _ = conn.execute(
+                                                                 "UPDATE users SET token = ?1 WHERE uuid = ?2",
+                                                                 [new_token_db, uuid],
+                                                             );
+                                                         }
                                                      }
                                                  }).await;
 

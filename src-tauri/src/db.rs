@@ -22,6 +22,7 @@ const SCHEMA: &[DbTable] = &[
             DbColumn { name: "name", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "email", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "token", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+            DbColumn { name: "refresh_token", def: "TEXT", type_affinity: "TEXT" },
             DbColumn { name: "current_project_id", def: "TEXT", type_affinity: "TEXT" },
         ],
         constraints: None,
@@ -146,12 +147,13 @@ pub fn save_user(conn: &mut Connection, user: &User) -> Result<(), rusqlite::Err
 
     // Insert user
     tx.execute(
-        "INSERT INTO users (uuid, name, email, token, current_project_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO users (uuid, name, email, token, refresh_token, current_project_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         [
             &user.uuid,
             &user.name,
             &user.email,
             &user.token,
+            user.refresh_token.as_deref().unwrap_or_default(),
             user.current_project_id.as_deref().unwrap_or_default(), 
         ],
     )?;
@@ -374,7 +376,7 @@ pub fn get_today_total_time(conn: &Connection, project_id: &str) -> Result<u64, 
 
 
 pub fn get_user(conn: &Connection) -> Result<Option<User>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT uuid, name, email, token, current_project_id FROM users LIMIT 1")?;
+    let mut stmt = conn.prepare("SELECT uuid, name, email, token, current_project_id, refresh_token FROM users LIMIT 1")?;
     
     let mut user_iter = stmt.query_map([], |row| {
         let uuid: String = row.get(0)?;
@@ -458,12 +460,14 @@ fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Re
     })?.collect::<Result<Vec<_>, _>>()?;
     
     let current_project_id: Option<String> = row.get(4).ok().filter(|s: &String| !s.is_empty());
+    let refresh_token: Option<String> = row.get(5).ok().filter(|s: &String| !s.is_empty());
 
     Ok(User {
         uuid: uuid,
         name: row.get(1)?,
         email: row.get(2)?,
         token: row.get(3)?,
+        refresh_token,
         current_project_id,
         projects,
     })

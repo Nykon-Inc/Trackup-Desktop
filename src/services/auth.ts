@@ -57,6 +57,7 @@ export const authenticateUser = async (email: string, password: string) => {
         name: account.name,
         email: account.email,
         token,
+        refresh_token: credentials.refresh.token,
         projects: projects.map(e => ({ name: e.name, id: e.id })),
         // We can add a derived field for existing logic if needed, 
         // but for now we basically merge the info.
