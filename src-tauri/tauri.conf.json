@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop",
+  "productName": "Trackup",
   "version": "0.1.0",
-  "identifier": "com.regenta.staffwatch",
+  "identifier": "com.regenta.trackup",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "StaffWatch",
+        "title": "Trackup",
         "width": 800,
         "height": 600,
         "url": "/"

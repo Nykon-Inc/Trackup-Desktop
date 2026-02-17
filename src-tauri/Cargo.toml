@@ -38,6 +38,8 @@ ab_glyph = "0.2.32"
 chrono = "0.4.42"
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
 active-win-pos-rs = "0.8"
+tauri-plugin-macos-permissions = "2.3.0"
+macos-accessibility-client = "0.0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [

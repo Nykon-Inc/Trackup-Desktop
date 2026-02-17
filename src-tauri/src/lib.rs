@@ -1,6 +1,7 @@
 use chrono::Local;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -13,6 +14,9 @@ mod idle;
 mod models;
 mod screenshot;
 mod tray_generator;
+
+// Use relevant types from the plugin or underlying crates if needed
+// but for commands we can just call them if they are re-exported.
 
 // ...
 
@@ -223,12 +227,77 @@ fn format_duration(seconds: u64) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, secs)
 }
 
+#[tauri::command]
+async fn check_permissions() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        serde_json::json!({
+            "accessibility": tauri_plugin_macos_permissions::check_accessibility_permission().await,
+            "screenRecording": tauri_plugin_macos_permissions::check_screen_recording_permission().await,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        serde_json::json!({
+            "accessibility": true,
+            "screenRecording": true,
+        })
+    }
+}
+
+#[tauri::command]
+async fn open_permissions_settings(type_name: String) {
+    println!("Opening permissions settings for: {}", type_name);
+    #[cfg(target_os = "macos")]
+    {
+        match type_name.as_str() {
+            "accessibility" => {
+                println!("Requesting accessibility permission and opening settings");
+                tauri_plugin_macos_permissions::request_accessibility_permission().await;
+                let _ = Command::new("open")
+                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    .spawn();
+            }
+            "screenRecording" => {
+                println!("Requesting screen recording permission and opening settings");
+                tauri_plugin_macos_permissions::request_screen_recording_permission().await;
+                let _ = Command::new("open")
+                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                    .spawn();
+            }
+            _ => {
+                println!("Unknown permission type: {}", type_name);
+            }
+        }
+    }
+}
+
 fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
     let state = app.state::<AppState>();
     // We need to fetch current state to enable/disable items correctly
     let mut current_project_name = "None".to_string();
     let mut has_active_session = false;
     let mut is_project_selected = false;
+    let permissions_granted = {
+        #[cfg(target_os = "macos")]
+        {
+            // Simple sync check for tray (re-implementing bits to avoid async in tray)
+            let mut granted = macos_accessibility_client::accessibility::application_is_trusted();
+
+            // For screen recording, we preflight via extern
+            extern "C" {
+                fn CGPreflightScreenCaptureAccess() -> bool;
+            }
+            unsafe {
+                granted = granted && CGPreflightScreenCaptureAccess();
+            }
+            granted
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            true
+        }
+    };
 
     if is_logged_in {
         if let Ok(conn) = Connection::open(&state.db_path) {
@@ -275,17 +344,16 @@ fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
                 .unwrap(),
             );
 
-            // Start Timer (Enabled if NO active session and project selected)
-            let start_enabled = !has_active_session && is_project_selected;
+            // Start Timer (Enabled if NO active session and project selected and permissions granted)
+            let start_enabled = !has_active_session && is_project_selected && permissions_granted;
+            let start_text = if !permissions_granted {
+                "Start Timer (Permissions Missing)"
+            } else {
+                "Start Timer"
+            };
             let _ = menu.append(
-                &MenuItem::with_id(
-                    app,
-                    "start_timer",
-                    "Start Timer",
-                    start_enabled,
-                    None::<&str>,
-                )
-                .unwrap(),
+                &MenuItem::with_id(app, "start_timer", start_text, start_enabled, None::<&str>)
+                    .unwrap(),
             );
 
             // Stop Timer (Enabled if active session)
@@ -530,6 +598,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -542,7 +611,9 @@ pub fn run() {
             process_idle_choice,
             force_quit,
             upload_and_quit,
-            get_project_today_total
+            get_project_today_total,
+            check_permissions,
+            open_permissions_settings
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

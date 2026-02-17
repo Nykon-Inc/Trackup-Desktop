@@ -1123,6 +1123,7 @@ dependencies = [
  "core-graphics 0.25.0",
  "image",
  "imageproc",
+ "macos-accessibility-client 0.0.2",
  "rand 0.8.5",
  "reqwest",
  "rusqlite",
@@ -1131,6 +1132,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-macos-permissions",
  "tauri-plugin-opener",
  "tauri-plugin-sql",
  "uuid",
@@ -3074,6 +3076,26 @@ name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
+
+[[package]]
+name = "macos-accessibility-client"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edf7710fbff50c24124331760978fb9086d6de6288dcdb38b25a97f8b1bdebbb"
+dependencies = [
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+]
+
+[[package]]
+name = "macos-accessibility-client"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c33254f6f9b60b98eff934c3664530e5058ff7173e0c6b12419a17d5461e7145"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+]
 
 [[package]]
 name = "malloc_buf"
@@ -6038,6 +6060,21 @@ dependencies = [
  "tauri-utils",
  "toml 0.9.9+spec-1.0.0",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-macos-permissions"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5607e0707d37d7b20e287cf0ce396d1efebe7b833b8e9cbd2ea4257091d9c604"
+dependencies = [
+ "macos-accessibility-client 0.0.1",
+ "objc2",
+ "objc2-foundation",
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

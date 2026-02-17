@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Routes, Route } from "react-router-dom";
@@ -7,6 +7,7 @@ import { fetchProjects } from "./services/auth";
 import "./App.css";
 import { IdleWindow } from "./components/IdleWindow";
 import { QuitWindow } from "./components/QuitWindow";
+import { PermissionsModal } from "./components/PermissionsModal";
 
 interface Project {
   id: string;
@@ -29,6 +30,9 @@ function MainWindow() {
   const [sessionTime, setSessionTime] = useState("--:--:--");
   const [isActive, setIsActive] = useState(false);
   const [projectTimes, setProjectTimes] = useState<Record<string, string>>({});
+  const [permissionsGranted, setPermissionsGranted] = useState(true);
+  const [showPermissions, setShowPermissions] = useState(false);
+  const initialized = useRef(false);
 
   useEffect(() => {
     // ... logic to update times
@@ -39,8 +43,10 @@ function MainWindow() {
   useEffect(() => {
     if (user) {
       updateProjectTimes();
+      checkPermissionsStatus();
     }
-  }, [user, sessionTime]); // Update when user loads or global timer ticks (optional, maybe overkill to do on every sec, but good for "active" project)
+  }, [user, sessionTime]);
+  // Update when user loads or global timer ticks (optional, maybe overkill to do on every sec, but good for "active" project)
 
   async function updateProjectTimes() {
     if (!user) return;
@@ -59,6 +65,24 @@ function MainWindow() {
     setProjectTimes(times);
   }
 
+  async function checkPermissionsStatus() {
+    try {
+      const res = await invoke<{ accessibility: boolean; screenRecording: boolean }>("check_permissions");
+      console.log(res)
+      const granted = res.accessibility && res.screenRecording;
+      setPermissionsGranted(granted);
+
+      // If we have a project but no permissions, show the modal
+      if (!granted && user?.current_project_id) {
+        setShowPermissions(true);
+      } else if (granted) {
+        setShowPermissions(false);
+      }
+    } catch (e) {
+      console.error("Failed to check permissions status", e);
+    }
+  }
+
   const totalToday = useMemo(() => {
     let totalSeconds = 0;
     Object.values(projectTimes).forEach(timeStr => {
@@ -74,7 +98,10 @@ function MainWindow() {
 
   useEffect(() => {
     // Listeners setup only
-    checkAuth()
+    if (!initialized.current) {
+      initialized.current = true;
+      checkAuth();
+    }
     const unlistenLogin = listen("request-login", () => checkAuth());
     const unlistenLogout = listen("logout-user", () => checkAuth());
     const unlistenTime = listen<string>("time-update", (event) => {
@@ -130,6 +157,12 @@ function MainWindow() {
     try {
       await invoke("set_current_project", { projectId });
       setUser({ ...user, current_project_id: projectId });
+
+      // Re-check permissions when project is selected
+      const res = await invoke<{ accessibility: boolean; screenRecording: boolean }>("check_permissions");
+      if (!res.accessibility || !res.screenRecording) {
+        setShowPermissions(true);
+      }
     } catch (err) {
       console.error("Failed to set project", err);
     }
@@ -166,6 +199,11 @@ function MainWindow() {
 
   return (
     <div className="flex h-screen bg-white text-gray-800 font-sans selection:bg-primary/10">
+      {showPermissions && <PermissionsModal onGranted={() => {
+        setPermissionsGranted(true);
+        setShowPermissions(false);
+      }} />}
+
       {/* Sidebar */}
       <div className="w-72 shrink-0 border-r border-gray-200 flex flex-col bg-white">
         {/* Timer Section */}
@@ -180,7 +218,8 @@ function MainWindow() {
 
           <button
             onClick={toggleTimer}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-primary hover:opacity-90'}`}
+            disabled={!permissionsGranted && !isActive}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer ${(isActive) ? 'bg-red-500 hover:bg-red-600' : (!permissionsGranted ? 'bg-gray-300 cursor-not-allowed text-gray-400 shadow-none' : 'bg-primary hover:opacity-90')}`}
           >
             {isActive ? (
               // Stop Icon
