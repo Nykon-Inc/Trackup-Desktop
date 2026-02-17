@@ -140,6 +140,14 @@ function MainWindow() {
         }
       }
       setUser(user);
+
+      // Fetch initial timer status
+      try {
+        const active = await invoke<boolean>("get_timer_status");
+        setIsActive(active);
+      } catch (e) {
+        console.error("Failed to fetch timer status", e);
+      }
     } catch (err) {
       console.error("Auth check failed", err);
     } finally {

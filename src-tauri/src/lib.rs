@@ -220,6 +220,21 @@ fn get_project_today_total(app: AppHandle, project_id: String) -> Result<String,
     Ok(format_duration(total_secs))
 }
 
+#[tauri::command]
+fn get_timer_status(app: AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    if let Ok(conn) = Connection::open(&state.db_path) {
+        if let Ok(Some(user)) = db::get_user(&conn) {
+            if let Some(pid) = user.current_project_id {
+                if let Ok(Some(_)) = db::get_active_session(&conn, &pid) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn format_duration(seconds: u64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
@@ -402,8 +417,10 @@ pub fn run() {
                 eprintln!("Failed to init db: {}", e);
             }
 
-            // Ensure timer is stopped on startup
-            let _ = stop_timer_internal(&app_handle);
+            // Ensure all timers are stopped on startup globally
+            if let Ok(conn) = Connection::open(&db_path) {
+                let _ = db::stop_all_active_sessions(&conn);
+            }
 
             // process pending screenshots on startup
             screenshot::upload_pending_screenshots(&app_handle);
@@ -613,7 +630,8 @@ pub fn run() {
             upload_and_quit,
             get_project_today_total,
             check_permissions,
-            open_permissions_settings
+            open_permissions_settings,
+            get_timer_status
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -270,6 +270,17 @@ pub fn stop_session(conn: &Connection, project_id: &str) -> Result<(), rusqlite:
     Ok(())
 }
 
+pub fn stop_all_active_sessions(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let end_time = Local::now().timestamp_millis();
+    println!("DB: Stopping all active sessions");
+    let updated = conn.execute(
+        "UPDATE sessions SET is_active = 0, end_time = ?1 WHERE is_active = 1",
+        (end_time,),
+    )?;
+    println!("DB: Stopped {} sessions totally", updated);
+    Ok(())
+}
+
 pub fn create_imported_session(conn: &Connection, session: &crate::models::SyncSession) -> Result<(), rusqlite::Error> {
     println!("DB: Importing session {}", session.uuid);
     conn.execute(
