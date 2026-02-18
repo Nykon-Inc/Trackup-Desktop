@@ -4,6 +4,12 @@ use image::{ImageBuffer, Rgba};
 use imageproc::drawing::{draw_text_mut, text_size};
 use tauri::image::Image;
 
+#[cfg(target_os = "windows")]
+const BASE_HEIGHT: u32 = 64;
+
+#[cfg(not(target_os = "windows"))]
+const BASE_HEIGHT: u32 = 40;
+
 const FONT_DATA: &[u8] = include_bytes!("Roboto-Regular.ttf");
 const ICON_DATA: &[u8] = include_bytes!("../icons/32x32.png");
 pub fn generate_tray_icon(text: &str) -> Option<Image<'static>> {
@@ -13,6 +19,10 @@ pub fn generate_tray_icon(text: &str) -> Option<Image<'static>> {
     let scale_factor = 4; // Render at 4x resolution
 
     // "Bigger" text
+    #[cfg(target_os = "windows")]
+    let base_text_size = 42.0;
+
+    #[cfg(not(target_os = "windows"))]
     let base_text_size = 32.0;
     let render_scale = PxScale {
         x: base_text_size * scale_factor as f32,
@@ -24,14 +34,18 @@ pub fn generate_tray_icon(text: &str) -> Option<Image<'static>> {
     let (text_w, _) = text_size(render_scale, &font, text);
 
     // "Less packed" -> More padding
-    let base_icon_size = 40; // New size to match base_height
+    let base_icon_size = BASE_HEIGHT; // New size to match base_height
     let render_icon_size = base_icon_size * scale_factor;
 
+    #[cfg(target_os = "windows")]
+    let base_padding_h = 32;
+
+    #[cfg(not(target_os = "windows"))]
     let base_padding_h = 24;
     let render_padding_h = base_padding_h * scale_factor;
 
     // "Bigger" overall -> Taller height
-    let base_height = 40;
+    let base_height = BASE_HEIGHT;
     let render_height = base_height * scale_factor;
 
     let render_width = render_icon_size + render_padding_h + text_w as u32 + render_padding_h;
@@ -82,6 +96,10 @@ pub fn generate_tray_icon(text: &str) -> Option<Image<'static>> {
     let target_height = render_height / scale_factor;
     let mut small = resize(&canvas, target_width, target_height, FilterType::Lanczos3);
 
+    #[cfg(target_os = "windows")]
+    apply_rounded_corners(&mut small, 8.0);
+
+    #[cfg(not(target_os = "windows"))]
     apply_rounded_corners(&mut small, 4.0);
 
     let raw_pixels = small.into_raw();
