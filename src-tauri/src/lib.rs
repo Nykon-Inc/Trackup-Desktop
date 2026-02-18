@@ -1,6 +1,7 @@
 use chrono::Local;
 use rusqlite::Connection;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -21,7 +22,7 @@ mod tray_generator;
 // ...
 
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 // use std::time::Instant;
 
 use idle::IdleState;
@@ -30,7 +31,7 @@ use models::User;
 // we don't need `Project` in lib.rs anymore unless we use it explicitly, but it's part of User.
 
 pub struct AppState {
-    pub db_path: PathBuf,
+    pub db_path: Mutex<PathBuf>,
     pub idle_state: Arc<IdleState>,
 }
 
@@ -42,7 +43,7 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn login(app: AppHandle, user: User) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     db::save_user(&mut conn, &user).map_err(|e| e.to_string())?;
 
@@ -55,7 +56,7 @@ fn login(app: AppHandle, user: User) -> Result<(), String> {
 #[tauri::command]
 fn set_current_project(app: AppHandle, project_id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     db::set_current_project(&conn, &project_id).map_err(|e| e.to_string())?;
 
@@ -65,7 +66,7 @@ fn set_current_project(app: AppHandle, project_id: String) -> Result<(), String>
 #[tauri::command]
 fn logout(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     db::clear_user(&conn).map_err(|e| e.to_string())?;
 
@@ -76,7 +77,7 @@ fn logout(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn check_auth(app: AppHandle) -> Result<Option<User>, String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     db::get_user(&conn).map_err(|e| e.to_string())
 }
@@ -88,7 +89,7 @@ fn start_timer(app: AppHandle) -> Result<(), String> {
 
 fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
     if let Some(user) = user_opt {
@@ -132,7 +133,7 @@ fn stop_timer(app: AppHandle) -> Result<(), String> {
 
 fn stop_timer_internal(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
     if let Some(user) = user_opt {
@@ -155,7 +156,7 @@ fn stop_timer_internal(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn process_idle_choice(app: AppHandle, idle_time: i64, keep: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
     if let Some(user) = user_opt {
@@ -214,7 +215,7 @@ fn upload_and_quit(app: AppHandle) {
 #[tauri::command]
 fn get_project_today_total(app: AppHandle, project_id: String) -> Result<String, String> {
     let state = app.state::<AppState>();
-    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     let total_secs = db::get_today_total_time(&conn, &project_id).map_err(|e| e.to_string())?;
     Ok(format_duration(total_secs))
@@ -223,7 +224,7 @@ fn get_project_today_total(app: AppHandle, project_id: String) -> Result<String,
 #[tauri::command]
 fn get_timer_status(app: AppHandle) -> bool {
     let state = app.state::<AppState>();
-    if let Ok(conn) = Connection::open(&state.db_path) {
+    if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
         if let Ok(Some(user)) = db::get_user(&conn) {
             if let Some(pid) = user.current_project_id {
                 if let Ok(Some(_)) = db::get_active_session(&conn, &pid) {
@@ -297,6 +298,9 @@ fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
         #[cfg(target_os = "macos")]
         {
             // Simple sync check for tray (re-implementing bits to avoid async in tray)
+            // Note: We need to make sure macos_accessibility_client is available or we use a different approach.
+            // Since we moved it to target-specific dep, we can't use it here if cfg is not macos.
+            // But this block is cfg(target_os = "macos"), so it should be fine.
             let mut granted = macos_accessibility_client::accessibility::application_is_trusted();
 
             // For screen recording, we preflight via extern
@@ -315,7 +319,7 @@ fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
     };
 
     if is_logged_in {
-        if let Ok(conn) = Connection::open(&state.db_path) {
+        if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
             if let Ok(Some(user)) = db::get_user(&conn) {
                 if let Some(pid) = &user.current_project_id {
                     is_project_selected = true;
@@ -395,8 +399,15 @@ fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
-        .setup(|app| {
+    let idle_state = Arc::new(IdleState::new());
+
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
+        .manage(AppState {
+            db_path: Mutex::new(PathBuf::new()),
+            idle_state: idle_state.clone(),
+        })
+        .setup(move |app| {
             let app_handle = app.handle();
             let app_data_dir = app
                 .path()
@@ -405,12 +416,9 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
             let db_path = app_data_dir.join("auth_v2.db");
 
-            let idle_state = Arc::new(IdleState::new());
-
-            app.manage(AppState {
-                db_path: db_path.clone(),
-                idle_state: idle_state.clone(),
-            });
+            // Update state with actual path
+            let state = app.state::<AppState>();
+            *state.db_path.lock().unwrap() = db_path.clone();
 
             // Init DB
             if let Err(e) = db::init_db(&db_path) {
@@ -532,7 +540,7 @@ pub fn run() {
                     let mut should_update_db = false;
                     let mut active_session_id = None;
 
-                    if let Ok(conn) = Connection::open(&state.db_path) {
+                    if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
                         if let Ok(Some(user)) = db::get_user(&conn) {
                             if let Some(project_id) = user.current_project_id {
                                 // Check active session
@@ -591,7 +599,7 @@ pub fn run() {
                     // Update DB if active session
                     if should_update_db {
                         if let Some(sid) = active_session_id {
-                            if let Ok(conn) = Connection::open(&state.db_path) {
+                            if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
                                 let k_count =
                                     state.idle_state.keyboard_count.load(Ordering::Relaxed) as i64;
                                 let m_count =
@@ -615,8 +623,14 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_macos_permissions::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_sql::Builder::default().build());
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_plugin_macos_permissions::init());
+    }
+    
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             greet,
             login,
@@ -646,7 +660,7 @@ pub fn run() {
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
             let state = app_handle.state::<AppState>();
             let mut has_pending = false;
-            if let Ok(conn) = Connection::open(&state.db_path) {
+            if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
                 if let Ok(pending) = db::get_pending_screenshots(&conn) {
                     if !pending.is_empty() {
                         has_pending = true;

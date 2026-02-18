@@ -1,0 +1,103 @@
+﻿cargo :     Checking 
+trackup v0.1.0 (C:\Us
+ers\HomePC\Documents\
+projects\Trackup-Desk
+top\src-tauri)
+At line:1 char:1
++ cargo check 2>&1 | 
+Out-File -Encoding 
+UTF8 err2.txt
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (    Che   
+ cking tr...ktop\    
+src-tauri):Strin    
+g) [], RemoteExc    
+eption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+error[E0597]: 
+`app_state` does not 
+live long enough
+   --> src\screenshot
+.rs:101:58
+    |
+100 |                
+     let app_state = 
+app_inner.state::<App
+State>();
+    |                
+         --------- 
+binding `app_state` 
+declared here
+101 |                
+     if let Ok(conn) 
+= Connection::open(&*
+app_state.db_path.loc
+k().unwrap()) {
+    |                
+                     
+                     
+^^^^^^^^^------------
+------------
+    |                
+                     
+                     
+|
+    |                
+                     
+                     
+borrowed value does 
+not live long enough
+    |                
+                     
+                     
+a temporary with 
+access to the borrow 
+is created here ...
+...
+121 |                
+ });
+    |                
+ -
+    |                
+ |
+    |                
+ `app_state` dropped 
+here while still 
+borrowed
+    |                
+ ... and the borrow 
+might be used here, 
+when that temporary 
+is dropped and runs 
+the `Drop` code for 
+type `std::sync::Mute
+xGuard`
+    |
+help: consider 
+adding semicolon 
+after the expression 
+so its temporaries 
+are dropped sooner, 
+before the local 
+variables declared 
+by the block are 
+dropped
+    |
+120 |                
+     };
+    |                
+      +
+
+For more information 
+about this error, 
+try `rustc --explain 
+E0597`.
+error: could not 
+compile `trackup` 
+(lib) due to 1 
+previous error

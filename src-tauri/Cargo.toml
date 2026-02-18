@@ -1,53 +1,73 @@
 [package]
-name = "desktop"
+name = "trackup"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Trackup Desktop App"
 authors = ["you"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# --------------------------------
+# Build-time only (tauri codegen)
+# --------------------------------
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# --------------------------------
+# App runtime dependencies
+# --------------------------------
 [dependencies]
-core-graphics = "0.25"
-core-foundation = "0.10"
-xcap = "0.8.2"
-webp = "0.3"
-base64 = "0.22"
-rand = "0.8"
-reqwest = { version = "0.12", features = ["json", "multipart"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1.0"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
 tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
-image = "0.25.9"
-imageproc = "0.26.0"
-rusttype = "0.9.3"
-ab_glyph = "0.2.32"
-chrono = "0.4.42"
-uuid = { version = "1.19.0", features = ["v4", "serde"] }
-active-win-pos-rs = "0.8"
-tauri-plugin-macos-permissions = "2.3.0"
-macos-accessibility-client = "0.0.2"
 
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = "0.4"
+rand = "0.8"
+base64 = "0.22"
+
+image = "0.25"
+imageproc = "0.26"
+rusttype = "0.9"
+ab_glyph = "0.2"
+
+rusqlite = { version = "0.31", features = ["bundled"] }
+webp = "0.3"
+
+active-win-pos-rs = "0.8"
+xcap = "0.8"
+
+# --------------------------------
+# macOS only
+# --------------------------------
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-macos-permissions = "2"
+
+macos-accessibility-client = "0.0.2"
+core-graphics = "0.25"
+core-foundation = "0.10"
+
+# --------------------------------
+# Windows only
+# --------------------------------
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_System_LibraryLoader",
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_LibraryLoader",
 ] }
 
+# --------------------------------
+# Linux only
+# --------------------------------
 [target.'cfg(target_os = "linux")'.dependencies]
-x11 = "2.21.0"
+x11 = "2.21"

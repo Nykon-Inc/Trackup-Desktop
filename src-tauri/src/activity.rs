@@ -3,6 +3,7 @@ use crate::idle::IdleState;
 use crate::AppState;
 use active_win_pos_rs::get_active_window;
 use rusqlite::Connection;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -10,46 +11,59 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime};
 
 pub fn get_browser_url(app_name: &str) -> Option<String> {
-    if cfg!(target_os = "macos") {
-        let script = if app_name.contains("Safari") {
-            format!(
-                "tell application \"{}\" to get URL of front document",
-                app_name
-            )
-        } else if app_name.contains("Chrome")
-            || app_name.contains("Brave")
-            || app_name.contains("Edge")
-            || app_name.contains("Arc")
-            || app_name.contains("Vivaldi")
-            || app_name.contains("Opera")
-            || app_name.contains("Chromium")
-        {
-            format!(
-                "tell application \"{}\" to get URL of active tab of front window",
-                app_name
-            )
-        } else if app_name.contains("Firefox") {
-            format!(
-                "tell application \"System Events\" to tell process \"{}\" to get value of UI element 1 of combo box 1 of toolbar 1 of group 1 of UI element 1 of window 1",
-                app_name
-            )
-        } else {
-            return None;
-        };
+    #[cfg(target_os = "macos")]
+    {
+        if cfg!(target_os = "macos") {
+            let script = if app_name.contains("Safari") {
+                format!(
+                    "tell application \"{}\" to get URL of front document",
+                    app_name
+                )
+            } else if app_name.contains("Chrome")
+                || app_name.contains("Brave")
+                || app_name.contains("Edge")
+                || app_name.contains("Arc")
+                || app_name.contains("Vivaldi")
+                || app_name.contains("Opera")
+                || app_name.contains("Chromium")
+            {
+                format!(
+                    "tell application \"{}\" to get URL of active tab of front window",
+                    app_name
+                )
+            } else if app_name.contains("Firefox") {
+                format!(
+                    "tell application \"System Events\" to tell process \"{}\" to get value of UI element 1 of combo box 1 of toolbar 1 of group 1 of UI element 1 of window 1",
+                    app_name
+                )
+            } else {
+                return None;
+            };
 
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-            .ok()?;
+            let output = Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output()
+                .ok()?;
 
-        if output.status.success() {
-            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !url.is_empty() && (url.starts_with("http") || url.contains("://")) {
-                return Some(url);
+            if output.status.success() {
+                let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !url.is_empty() && (url.starts_with("http") || url.contains("://")) {
+                    return Some(url);
+                }
             }
         }
     }
+
+    // Windows/Linux Implementation (Stub for now)
+    // Accessing browser URL on Windows requires UI Automation or Accessibility APIs which are complex.
+    // For now, we return None.
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Prevent unused variable warning
+        let _ = app_name;
+    }
+
     None
 }
 
@@ -84,7 +98,7 @@ pub fn start_activity_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>)
 
             // Get state for credentials/paths
             let app_state = app_monitor.state::<AppState>();
-            let db_path = app_state.db_path.clone();
+            let db_path = app_state.db_path.lock().unwrap().clone();
 
             // Perform check in background thread
             if let Ok(conn) = Connection::open(&db_path) {

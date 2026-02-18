@@ -1,0 +1,156 @@
+﻿cargo :     Checking 
+trackup v0.1.0 (C:\Us
+ers\HomePC\Documents\
+projects\Trackup-Desk
+top\src-tauri)
+At line:1 char:1
++ cargo check 2>&1 | 
+Out-File -Encoding 
+UTF8 err.txt
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (    Che   
+ cking tr...ktop\    
+src-tauri):Strin    
+g) [], RemoteExc    
+eption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+error[E0277]: the 
+trait bound `std::syn
+c::Mutex<PathBuf>: As
+Ref<std::path::Path>`
+ is not satisfied
+   --> src\screenshot
+.rs:101:57
+    |
+101 |                
+     if let Ok(conn) 
+= Connection::open(&a
+pp_state.db_path) {
+    |                
+                     
+  ----------------  
+^^^^^^^^^^^^^^^^^ 
+the trait `AsRef<std:
+:path::Path>` is not 
+implemented for `std:
+:sync::Mutex<PathBuf>
+`
+    |                
+                     
+  |
+    |                
+                     
+  required by a 
+bound introduced by 
+this call
+    |
+    = note: required 
+for `&std::sync::Mute
+x<PathBuf>` to 
+implement `AsRef<std:
+:path::Path>`
+note: required by a 
+bound in 
+`Connection::open`
+   --> C:\Users\HomeP
+C\.cargo\registry\src
+\index.crates.io-1949
+cf8c6b5b557f\rusqlite
+-0.31.0\src\lib.rs:44
+5:20
+    |
+445 |     pub fn 
+open<P: 
+AsRef<Path>>(path: 
+P) -> 
+Result<Connection> {
+    |                
+    ^^^^^^^^^^^ 
+required by this 
+bound in 
+`Connection::open`
+
+error[E0373]: 
+closure may outlive 
+the current 
+function, but it 
+borrows 
+`idle_state`, which 
+is owned by the 
+current function
+   --> 
+src\lib.rs:410:16
+    |
+410 |         
+.setup(|app| {
+    |                
+^^^^^ may outlive 
+borrowed value 
+`idle_state`
+...
+439 |             idl
+e::start_idle_check(a
+pp_handle.clone(), 
+idle_state.clone());
+    |                
+                     
+                   
+---------- 
+`idle_state` is 
+borrowed here
+    |
+note: function 
+requires argument 
+type to outlive 
+`'static`
+   --> 
+src\lib.rs:405:23
+    |
+405 |       let mut 
+builder = tauri::Buil
+der::default()
+    |  ______________
+_________^
+406 | |         
+.manage(AppState {
+407 | |             
+db_path: Mutex::new(P
+athBuf::new()),
+408 | |             
+idle_state: 
+idle_state.clone(),
+...   |
+623 | |             
+Ok(())
+624 | |         })
+    | |__________^
+help: to force the 
+closure to take 
+ownership of 
+`idle_state` (and 
+any other referenced 
+variables), use the 
+`move` keyword
+    |
+410 |         
+.setup(move |app| {
+    |                
+++++
+
+Some errors have 
+detailed 
+explanations: E0277, 
+E0373.
+For more information 
+about an error, try 
+`rustc --explain 
+E0277`.
+error: could not 
+compile `trackup` 
+(lib) due to 2 
+previous errors

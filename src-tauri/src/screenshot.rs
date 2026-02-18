@@ -98,7 +98,8 @@ pub fn start_capture_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) 
 
                 let _ = app_monitor.run_on_main_thread(move || {
                     let app_state = app_inner.state::<AppState>();
-                    if let Ok(conn) = Connection::open(&app_state.db_path) {
+                    let db_path = app_state.db_path.lock().unwrap().clone();
+                    if let Ok(conn) = Connection::open(&db_path) {
                         if let Ok(Some(user)) = db::get_user(&conn) {
                             if let Some(pid) = user.current_project_id {
                                 if let Ok(Some(session)) = db::get_active_session(&conn, &pid) {
@@ -133,7 +134,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
     async_runtime::spawn(async move {
         // 1. Fetch Data (Blocking DB op)
         let app_state = app_handle.state::<AppState>();
-        let db_path = app_state.db_path.clone();
+        let db_path = app_state.db_path.lock().unwrap().clone();
 
         let data_op = async_runtime::spawn_blocking(move || {
             if let Ok(conn) = Connection::open(&db_path) {
@@ -254,7 +255,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                                                 let new_token_db = token.clone();
                                                 let new_refresh_db =
                                                     new_refresh.map(|s| s.to_string());
-                                                let db_path_update = app_state.db_path.clone();
+                                                let db_path_update = app_state.db_path.lock().unwrap().clone();
                                                 let uuid = user.uuid.clone();
                                                 let _ = async_runtime::spawn_blocking(move || {
                                                      if let Ok(conn) = Connection::open(&db_path_update) {
@@ -301,7 +302,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                                         println!("Monitor: Token refresh failed. Logging out.");
                                         use tauri::Emitter; // Import Emitter trait
                                         let _ = app_handle.emit("logout-user", ());
-                                        let db_path_logout = app_state.db_path.clone();
+                                        let db_path_logout = app_state.db_path.lock().unwrap().clone();
                                         let _ = async_runtime::spawn_blocking(move || {
                                             if let Ok(conn) = Connection::open(&db_path_logout) {
                                                 let _ = db::clear_user(&conn);
@@ -392,7 +393,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
 
             // 4. Batch Update/Delete (Blocking DB op)
             if !synced_session_uuids.is_empty() || !uploaded_screenshot_ids.is_empty() {
-                let db_path_del = app_state.db_path.clone();
+                let db_path_del = app_state.db_path.lock().unwrap().clone();
                 let _ = async_runtime::spawn_blocking(move || {
                     if let Ok(conn) = Connection::open(&db_path_del) {
                         // Use a transaction for safety
@@ -428,7 +429,7 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
 
     async_runtime::spawn(async move {
         let app_state = app_handle.state::<AppState>();
-        let db_path = app_state.db_path.clone();
+        let db_path = app_state.db_path.lock().unwrap().clone();
 
         let user_op = async_runtime::spawn_blocking(move || {
             if let Ok(conn) = Connection::open(&db_path) {
@@ -462,7 +463,7 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
                                 server_sessions.len()
                             );
 
-                            let db_path_sync = app_state.db_path.clone();
+                            let db_path_sync = app_state.db_path.lock().unwrap().clone();
                             let _ = async_runtime::spawn_blocking(move || {
                                 if let Ok(conn) = Connection::open(&db_path_sync) {
                                     for server_session in server_sessions {
