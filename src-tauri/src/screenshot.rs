@@ -4,7 +4,6 @@ use crate::models::SessionPayload;
 use crate::AppState;
 use base64::{engine::general_purpose, Engine as _};
 use image::imageops::FilterType;
-use rand::Rng;
 use rusqlite::Connection;
 use serde_json::json;
 use std::sync::Arc;
@@ -64,12 +63,12 @@ pub fn start_capture_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) 
 
     thread::spawn(move || {
         println!("Monitor: Starting Capture Loop");
-        let mut rng = rand::thread_rng();
+        // Use a fixed 2-minute interval (120 seconds)
         let mut next_capture_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + rng.gen_range(20..60);
+            + 120;
 
         loop {
             thread::sleep(Duration::from_secs(10));
@@ -121,7 +120,7 @@ pub fn start_capture_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) 
                     }
                 });
 
-                next_capture_time = now + rng.gen_range(60..120);
+                next_capture_time = now + 120;
             }
         }
     });
@@ -255,7 +254,8 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                                                 let new_token_db = token.clone();
                                                 let new_refresh_db =
                                                     new_refresh.map(|s| s.to_string());
-                                                let db_path_update = app_state.db_path.lock().unwrap().clone();
+                                                let db_path_update =
+                                                    app_state.db_path.lock().unwrap().clone();
                                                 let uuid = user.uuid.clone();
                                                 let _ = async_runtime::spawn_blocking(move || {
                                                      if let Ok(conn) = Connection::open(&db_path_update) {
@@ -302,7 +302,8 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                                         println!("Monitor: Token refresh failed. Logging out.");
                                         use tauri::Emitter; // Import Emitter trait
                                         let _ = app_handle.emit("logout-user", ());
-                                        let db_path_logout = app_state.db_path.lock().unwrap().clone();
+                                        let db_path_logout =
+                                            app_state.db_path.lock().unwrap().clone();
                                         let _ = async_runtime::spawn_blocking(move || {
                                             if let Ok(conn) = Connection::open(&db_path_logout) {
                                                 let _ = db::clear_user(&conn);

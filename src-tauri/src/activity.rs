@@ -82,7 +82,7 @@ pub fn start_activity_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>)
     thread::spawn(move || {
         println!("Activity: Starting Activity Loop");
         loop {
-            thread::sleep(Duration::from_secs(5)); // Check every 5 seconds
+            thread::sleep(Duration::from_secs(150)); // Check every 150 seconds (2.5 minutes)
 
             // EXIT LOOP if monitoring stopped
             if !state_monitor
