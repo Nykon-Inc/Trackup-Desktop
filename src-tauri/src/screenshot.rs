@@ -166,6 +166,22 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                 println!("Monitor: Syncing {} sessions...", pending_sess.len());
                 let url = format!("{}/client/sessions", base_url);
 
+                // Log total activity for this sync batch
+                let mut total_kb = 0;
+                let mut total_ms = 0;
+                for s in &pending_sess {
+                    total_kb += s.keyboard_events;
+                    total_ms += s.mouse_events;
+                    println!(
+                        "Activity Log [Syncing Session {}]: Keyboards={}, Mouse={}",
+                        s.uuid, s.keyboard_events, s.mouse_events
+                    );
+                }
+                println!(
+                    "Activity Log [Bulk Sync Total]: Keyboards={}, Mouse={}",
+                    total_kb, total_ms
+                );
+
                 let payload_data: Vec<SessionPayload> = pending_sess
                     .iter()
                     .map(|s| {

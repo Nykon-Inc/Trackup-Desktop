@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::{Local, Timelike};
 use rusqlite::Connection;
 use std::path::PathBuf;
 #[cfg(target_os = "macos")]
@@ -547,11 +547,21 @@ pub fn run() {
                                 if let Ok(Some(session)) =
                                     db::get_active_session(&conn, &project_id)
                                 {
-                                    // Check if session exceeds 10 minutes (600s * 1000ms)
-                                    let now_ms = Local::now().timestamp_millis();
+                                    // Check if session exceeds 10 minutes or crosses hour boundary
+                                    let now = Local::now();
+                                    let now_ms = now.timestamp_millis();
                                     let duration = now_ms - session.start_time;
 
-                                    if duration >= 10 * 60 * 1000 {
+                                    // Get the hour and day of the session start
+                                    let start_time_dt =
+                                        chrono::DateTime::from_timestamp_millis(session.start_time)
+                                            .map(|dt| dt.with_timezone(&Local))
+                                            .unwrap_or(now);
+
+                                    let hour_changed = now.hour() != start_time_dt.hour()
+                                        || now.date_naive() != start_time_dt.date_naive();
+
+                                    if duration >= 10 * 60 * 1000 || hour_changed {
                                         // Stop current session
                                         let _ = db::stop_session(&conn, &project_id);
                                         // Start new session
@@ -629,7 +639,7 @@ pub fn run() {
     {
         builder = builder.plugin(tauri_plugin_macos_permissions::init());
     }
-    
+
     let app = builder
         .invoke_handler(tauri::generate_handler![
             greet,
