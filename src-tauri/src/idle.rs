@@ -54,12 +54,16 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
 
     let events = vec![
         CGEventType::KeyDown,
+        CGEventType::FlagsChanged,
         CGEventType::LeftMouseDown,
+        CGEventType::RightMouseDown,
+        CGEventType::OtherMouseDown,
         CGEventType::MouseMoved,
+        CGEventType::ScrollWheel,
     ];
 
     let tap = CGEventTap::new(
-        CGEventTapLocation::HID,
+        CGEventTapLocation::Session,
         CGEventTapPlacement::HeadInsertEventTap,
         CGEventTapOptions::Default,
         events,
@@ -83,7 +87,18 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                 }
 
                 CGEventType::LeftMouseDown => {
-                    // clicks are always meaningful
+                    state.mouse_count.fetch_add(1, Ordering::Relaxed);
+                }
+
+                CGEventType::RightMouseDown => {
+                    state.mouse_count.fetch_add(1, Ordering::Relaxed);
+                }
+
+                CGEventType::OtherMouseDown => {
+                    state.mouse_count.fetch_add(1, Ordering::Relaxed);
+                }
+
+                CGEventType::ScrollWheel => {
                     state.mouse_count.fetch_add(1, Ordering::Relaxed);
                 }
 
@@ -161,6 +176,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                     // We will just increment mouse_count as a generic "activity" counter for now
                     // or split it evenly? Let's just do mouse_count to be safe/lazy or maybe both?
                     // Better: just increment mouse_count.
+                    println!("Activity event fired (Windows)");
                     state.mouse_count.fetch_add(1, Ordering::Relaxed);
 
                     let now = SystemTime::now()
@@ -212,6 +228,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
             // If idle_ms DROPPED significantly, it means activity happened.
             if idle_ms < last_idle_ms && last_idle_ms > 1000 {
                 // Activity!
+                println!("Activity event fired (Linux)");
                 state.mouse_count.fetch_add(1, Ordering::Relaxed);
 
                 let now = SystemTime::now()
