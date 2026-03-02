@@ -451,10 +451,15 @@ pub fn run() {
                     let app_inner = app_handle_for_idle.clone();
                     let _ = app_handle_for_idle.run_on_main_thread(move || {
                         if let Some(window) = app_inner.get_webview_window("idle") {
+                            // Show and focus first to ensure the webview is active
                             let _ = window.show();
+                            let _ = window.unminimize();
                             let _ = window.set_focus();
-                            // Emit to specific window or global?
-                            // Global emit handles it for now, React component in IdleWindow listens.
+
+                            // Emit to specific window - more reliable in multi-window setups
+                            let _ = window.emit("idle_ended", duration);
+
+                            // Also emit globally as a fallback
                             let _ = app_inner.emit("idle_ended", duration);
                         }
                     });

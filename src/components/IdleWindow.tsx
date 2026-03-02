@@ -11,6 +11,7 @@ export function IdleWindow() {
         // OR we can pass it as a query param if window is opened with it
         // But since Rust emits it, let's listen.
         const unlisten = listen<number>("idle_ended", (event) => {
+            console.log("IdleWindow received idle_ended event:", event.payload);
             setIdleTime(event.payload);
             const win = getCurrentWindow();
             win.show();
