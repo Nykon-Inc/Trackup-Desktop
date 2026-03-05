@@ -1,3 +1,4 @@
+use crate::api;
 use crate::db;
 use crate::idle::IdleState;
 use crate::models::SessionPayload;
@@ -135,9 +136,10 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
         let app_state = app_handle.state::<AppState>();
         let db_path = app_state.db_path.lock().unwrap().clone();
 
+        let db_path_fetch = db_path.clone();
         let data_op = async_runtime::spawn_blocking(move || {
-            if let Ok(conn) = Connection::open(&db_path) {
-                let user = db::get_user(&conn).ok().flatten();
+            if let Ok(conn) = Connection::open(&db_path_fetch) {
+                let _user = db::get_user(&conn).ok().flatten();
                 let pending_sc = db::get_pending_screenshots(&conn).unwrap_or_default();
                 let pending_sess = db::get_pending_sessions(&conn).unwrap_or_default();
 
@@ -148,23 +150,19 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                     }
                 }
 
-                Ok((user, pending_sc, pending_sess, session_logs))
+                Ok((_user, pending_sc, pending_sess, session_logs))
             } else {
                 Err("Failed to open DB")
             }
         })
         .await;
 
-        if let Ok(Ok((Some(user), pending_sc, pending_sess, session_logs))) = data_op {
-            let mut token = user.token.clone();
-            let base_url = "https://trackup.staging-api.nykon.cloud/v1";
-            let client = reqwest::Client::new();
-
+        if let Ok(Ok((_, pending_sc, pending_sess, session_logs))) = data_op {
             // 2. Bulk Session Sync
             let mut synced_session_uuids = Vec::new();
             if !pending_sess.is_empty() {
                 println!("Monitor: Syncing {} sessions...", pending_sess.len());
-                let url = format!("{}/client/sessions", base_url);
+                let endpoint = "/client/sessions";
 
                 // Log total activity for this sync batch
                 let mut total_kb = 0;
@@ -203,138 +201,20 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
 
                 let payload = json!(payload_data);
 
-                let res = client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .json(&payload)
-                    .send()
-                    .await;
-
-                match res {
+                match api::request(&app_handle, reqwest::Method::POST, endpoint, Some(&payload))
+                    .await
+                {
                     Ok(response) => {
-                        let status = response.status();
-                        if status.is_success() {
+                        if response.status().is_success() {
                             println!("Monitor: Bulk session sync success.");
                             for s in &pending_sess {
                                 synced_session_uuids.push((s.uuid.clone(), s.is_active));
                             }
-                        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-                            // Try refreshing token
-                            println!("Monitor: 401 Unauthorized. Attempting token refresh...");
-                            // Use refresh_token if available
-                            let refresh_url = format!("{}/auth/refresh-tokens", base_url);
-                            let refresh_res = match &user.refresh_token {
-                                Some(rt) => {
-                                    client
-                                        .post(&refresh_url)
-                                        .json(&json!({ "refreshToken": rt }))
-                                        .send()
-                                        .await
-                                }
-                                None => {
-                                    // Fallback to old attempt or just fail
-                                    client
-                                        .post(&refresh_url)
-                                        .header("Authorization", format!("Bearer {}", token))
-                                        .send()
-                                        .await
-                                }
-                            };
-
-                            match refresh_res {
-                                Ok(u_res) => {
-                                    if u_res.status().is_success() {
-                                        // Assume we got new tokens: { "access": { "token": "..." }, "refresh": { "token": "..." } }
-                                        // Or a simpler format. Let's handle both or common one.
-                                        if let Ok(json_body) =
-                                            u_res.json::<serde_json::Value>().await
-                                        {
-                                            let new_access = json_body
-                                                .get("access")
-                                                .and_then(|a| a.get("token"))
-                                                .and_then(|t| t.as_str())
-                                                .or_else(|| {
-                                                    json_body.get("token").and_then(|t| t.as_str())
-                                                });
-
-                                            let new_refresh = json_body
-                                                .get("refresh")
-                                                .and_then(|r| r.get("token"))
-                                                .and_then(|t| t.as_str());
-
-                                            if let Some(new_token) = new_access {
-                                                println!("Monitor: Token refreshed successfully.");
-                                                token = new_token.to_string();
-
-                                                // Update DB with new token
-                                                let new_token_db = token.clone();
-                                                let new_refresh_db =
-                                                    new_refresh.map(|s| s.to_string());
-                                                let db_path_update =
-                                                    app_state.db_path.lock().unwrap().clone();
-                                                let uuid = user.uuid.clone();
-                                                let _ = async_runtime::spawn_blocking(move || {
-                                                     if let Ok(conn) = Connection::open(&db_path_update) {
-                                                         if let Some(rt) = new_refresh_db {
-                                                             let _ = conn.execute(
-                                                                 "UPDATE users SET token = ?1, refresh_token = ?2 WHERE uuid = ?3",
-                                                                 [new_token_db, rt, uuid],
-                                                             );
-                                                         } else {
-                                                             let _ = conn.execute(
-                                                                 "UPDATE users SET token = ?1 WHERE uuid = ?2",
-                                                                 [new_token_db, uuid],
-                                                             );
-                                                         }
-                                                     }
-                                                 }).await;
-
-                                                // Retry Session Sync
-                                                let retry_res = client
-                                                    .post(&url)
-                                                    .header(
-                                                        "Authorization",
-                                                        format!("Bearer {}", token),
-                                                    )
-                                                    .json(&payload)
-                                                    .send()
-                                                    .await;
-
-                                                if let Ok(r_res) = retry_res {
-                                                    if r_res.status().is_success() {
-                                                        println!("Monitor: Bulk session sync success (after refresh).");
-                                                        for s in &pending_sess {
-                                                            synced_session_uuids.push((
-                                                                s.uuid.clone(),
-                                                                s.is_active,
-                                                            ));
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        // Refresh failed -> Logout
-                                        println!("Monitor: Token refresh failed. Logging out.");
-                                        use tauri::Emitter; // Import Emitter trait
-                                        let _ = app_handle.emit("logout-user", ());
-                                        let db_path_logout =
-                                            app_state.db_path.lock().unwrap().clone();
-                                        let _ = async_runtime::spawn_blocking(move || {
-                                            if let Ok(conn) = Connection::open(&db_path_logout) {
-                                                let _ = db::clear_user(&conn);
-                                            }
-                                        })
-                                        .await;
-                                        return;
-                                    }
-                                }
-                                Err(_) => {
-                                    println!("Monitor: Token refresh request failed.");
-                                }
-                            }
                         } else {
-                            eprintln!("Monitor: Bulk session sync failed. Status: {}", status);
+                            eprintln!(
+                                "Monitor: Bulk session sync failed. Status: {}",
+                                response.status()
+                            );
                         }
                     }
                     Err(e) => eprintln!("Monitor: Session bulk request error: {}", e),
@@ -352,9 +232,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                 );
 
                 for (id, session_uuid, project_id, timestamp, image_data) in pending_sc {
-                    let client = client.clone();
-                    let token = token.clone();
-                    let url = format!("{}/client/screenshots", base_url);
+                    let app_inner = app_handle.clone();
 
                     let task = async_runtime::spawn(async move {
                         println!(
@@ -370,14 +248,14 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                             "fileExt": "webp"
                         });
 
-                        let res = client
-                            .post(&url)
-                            .header("Authorization", format!("Bearer {}", token))
-                            .json(&payload)
-                            .send()
-                            .await;
-
-                        match res {
+                        match api::request(
+                            &app_inner,
+                            reqwest::Method::POST,
+                            "/client/screenshots",
+                            Some(&payload),
+                        )
+                        .await
+                        {
                             Ok(response) => {
                                 if response.status().is_success() {
                                     println!("Monitor: Upload success for {}", id);
@@ -410,9 +288,9 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
 
             // 4. Batch Update/Delete (Blocking DB op)
             if !synced_session_uuids.is_empty() || !uploaded_screenshot_ids.is_empty() {
-                let db_path_del = app_state.db_path.lock().unwrap().clone();
+                let db_path_sync = db_path.clone();
                 let _ = async_runtime::spawn_blocking(move || {
-                    if let Ok(conn) = Connection::open(&db_path_del) {
+                    if let Ok(conn) = Connection::open(&db_path_sync) {
                         // Use a transaction for safety
                         if let Ok(tx) = conn.unchecked_transaction() {
                             for (uuid, is_active) in synced_session_uuids {
@@ -448,53 +326,27 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
         let app_state = app_handle.state::<AppState>();
         let db_path = app_state.db_path.lock().unwrap().clone();
 
-        let user_op = async_runtime::spawn_blocking(move || {
-            if let Ok(conn) = Connection::open(&db_path) {
-                db::get_user(&conn).ok().flatten()
-            } else {
-                None
-            }
-        })
-        .await;
-
-        if let Ok(Some(user)) = user_op {
-            let token = user.token.clone();
-            let base_url = "https://trackup.staging-api.nykon.cloud/v1";
-            let client = reqwest::Client::new();
-            let url = format!("{}/client/sessions/today", base_url);
-
-            let res = client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", token))
-                .send()
-                .await;
-
-            match res {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        if let Ok(server_sessions) =
-                            response.json::<Vec<crate::models::SyncSession>>().await
-                        {
-                            println!(
-                                "Monitor: Fetched {} sessions from server.",
-                                server_sessions.len()
-                            );
-
-                            let db_path_sync = app_state.db_path.lock().unwrap().clone();
-                            let _ = async_runtime::spawn_blocking(move || {
-                                if let Ok(conn) = Connection::open(&db_path_sync) {
-                                    for server_session in server_sessions {
-                                        // Check if exists
-                                        if let Ok(local_opt) =
-                                            db::get_session_by_uuid(&conn, &server_session.uuid)
-                                        {
-                                            match local_opt {
-                                                Some(local_session) => {
-                                                    // Compare Start/End Delta
-                                                    // Local Delta
-                                                    let local_duration = if let Some(end) =
-                                                        local_session.end_time
-                                                    {
+        let endpoint = "/client/sessions/today";
+        match api::request::<R, ()>(&app_handle, reqwest::Method::GET, endpoint, None).await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    if let Ok(server_sessions) =
+                        response.json::<Vec<crate::models::SyncSession>>().await
+                    {
+                        println!(
+                            "Monitor: Fetched {} sessions from server.",
+                            server_sessions.len()
+                        );
+                        let _ = async_runtime::spawn_blocking(move || {
+                            if let Ok(conn) = Connection::open(&db_path) {
+                                for server_session in server_sessions {
+                                    if let Ok(local_opt) =
+                                        db::get_session_by_uuid(&conn, &server_session.uuid)
+                                    {
+                                        match local_opt {
+                                            Some(local_session) => {
+                                                let local_duration =
+                                                    if let Some(end) = local_session.end_time {
                                                         end.saturating_sub(local_session.start_time)
                                                     } else {
                                                         let now = SystemTime::now()
@@ -505,49 +357,42 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
                                                         now.saturating_sub(local_session.start_time)
                                                     };
 
-                                                    // Server Delta
-                                                    let server_duration = if let Some(end) =
-                                                        server_session.end_time
-                                                    {
-                                                        end.saturating_sub(
-                                                            server_session.start_time,
-                                                        )
-                                                    } else {
-                                                        // Server also active?
-                                                        0
-                                                    };
+                                                let server_duration = if let Some(end) =
+                                                    server_session.end_time
+                                                {
+                                                    end.saturating_sub(server_session.start_time)
+                                                } else {
+                                                    0
+                                                };
 
-                                                    if server_duration > local_duration {
-                                                        // Server has "more" data. Update local.
-                                                        let _ = db::update_imported_session(
-                                                            &conn,
-                                                            &server_session,
-                                                        );
-                                                    }
-                                                }
-                                                None => {
-                                                    // Insert new
-                                                    let _ = db::create_imported_session(
+                                                if server_duration > local_duration {
+                                                    let _ = db::update_imported_session(
                                                         &conn,
                                                         &server_session,
                                                     );
                                                 }
                                             }
+                                            None => {
+                                                let _ = db::create_imported_session(
+                                                    &conn,
+                                                    &server_session,
+                                                );
+                                            }
                                         }
                                     }
                                 }
-                            })
-                            .await;
-                        }
-                    } else {
-                        eprintln!(
-                            "Monitor: Failed to fetch daily sessions. Status: {}",
-                            response.status()
-                        );
+                            }
+                        })
+                        .await;
                     }
+                } else {
+                    eprintln!(
+                        "Monitor: Failed to fetch daily sessions. Status: {}",
+                        response.status()
+                    );
                 }
-                Err(e) => eprintln!("Monitor: Fetch daily sessions error: {}", e),
             }
+            Err(e) => eprintln!("Monitor: Fetch daily sessions error: {}", e),
         }
     });
 }

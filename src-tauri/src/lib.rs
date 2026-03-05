@@ -6,11 +6,11 @@ use std::process::Command;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Listener, Manager,
+    AppHandle, Emitter, Listener, Manager, Runtime,
 };
-mod db;
-
 mod activity;
+mod api;
+mod db;
 mod idle;
 mod models;
 mod screenshot;
@@ -33,6 +33,7 @@ use models::User;
 pub struct AppState {
     pub db_path: Mutex<PathBuf>,
     pub idle_state: Arc<IdleState>,
+    pub client: reqwest::Client,
 }
 
 #[tauri::command]
@@ -288,7 +289,7 @@ async fn open_permissions_settings(type_name: String) {
     }
 }
 
-fn update_tray(app: &AppHandle, is_logged_in: bool, email: &str) {
+pub fn update_tray<R: Runtime>(app: &AppHandle<R>, is_logged_in: bool, email: &str) {
     let state = app.state::<AppState>();
     // We need to fetch current state to enable/disable items correctly
     let mut current_project_name = "None".to_string();
@@ -406,6 +407,7 @@ pub fn run() {
         .manage(AppState {
             db_path: Mutex::new(PathBuf::new()),
             idle_state: idle_state.clone(),
+            client: reqwest::Client::new(),
         })
         .setup(move |app| {
             let app_handle = app.handle();
