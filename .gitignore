@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build & Secrets
+scripts/upload-release.mjs
+scripts/.env.build
+.env.build
