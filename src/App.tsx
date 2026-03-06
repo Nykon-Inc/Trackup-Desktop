@@ -8,6 +8,7 @@ import "./App.css";
 import { IdleWindow } from "./components/IdleWindow";
 import { QuitWindow } from "./components/QuitWindow";
 import { PermissionsModal } from "./components/PermissionsModal";
+import { BreakModal } from "./components/BreakModal";
 
 interface Project {
   id: string;
@@ -24,10 +25,20 @@ interface User {
   current_project_id?: string;
 }
 
+interface TimeUpdatePayload {
+  time: string;
+  projectType: string;
+  projectId: string;
+  targetName: string | null;
+}
+
 function MainWindow() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionTime, setSessionTime] = useState("--:--:--");
+  const [sessionType, setSessionType] = useState<string>("Project");
+  const [activeBreakName, setActiveBreakName] = useState<string | null>(null);
+  const [showBreakModal, setShowBreakModal] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [projectTimes, setProjectTimes] = useState<Record<string, string>>({});
   const [permissionsGranted, setPermissionsGranted] = useState(true);
@@ -104,8 +115,10 @@ function MainWindow() {
     }
     const unlistenLogin = listen("request-login", () => checkAuth());
     const unlistenLogout = listen("logout-user", () => checkAuth());
-    const unlistenTime = listen<string>("time-update", (event) => {
-      setSessionTime(event.payload);
+    const unlistenTime = listen<TimeUpdatePayload>("time-update", (event) => {
+      setSessionTime(event.payload.time);
+      setSessionType(event.payload.projectType);
+      setActiveBreakName(event.payload.targetName);
     });
 
     const unlistenActive = listen<boolean>("timer-active", (event) => {
@@ -212,16 +225,40 @@ function MainWindow() {
         setShowPermissions(false);
       }} />}
 
+      {showBreakModal && user?.current_project_id && (
+        <BreakModal
+          projectId={user.current_project_id}
+          token={user.token}
+          onClose={() => setShowBreakModal(false)}
+          onStartBreak={() => setIsActive(true)}
+        />
+      )}
+
       {/* Sidebar */}
       <div className="w-72 shrink-0 border-r border-gray-200 flex flex-col bg-white">
         {/* Timer Section */}
         <div className="p-5 flex flex-col items-center border-b border-gray-100">
-          <div className="bg-primary text-white px-5 py-1.5 rounded-full text-2xl font-mono font-bold mb-4 tracking-wider shadow-sm">
-            {sessionTime === "--:--:--" ? "00:00:00" : sessionTime}
+          <div className="h-8">
+            {isActive && sessionType === "Project" && (
+              <button
+                onClick={() => setShowBreakModal(true)}
+                title="Take a break"
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-orange-50 text-orange-500 hover:bg-orange-100 transition-colors shadow-sm active:scale-95 cursor-pointer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 my-4">
+            <div className="bg-primary text-white px-5 py-1.5 rounded-full text-2xl font-mono font-bold tracking-wider shadow-sm">
+              {sessionTime === "--:--:--" ? "00:00:00" : sessionTime}
+            </div>
           </div>
 
-          <h2 className="text-base font-bold text-gray-900 mb-5 truncate max-w-full" title={currentProject?.name}>
-            {currentProject?.name || "Select Project"}
+          <h2 className="text-base font-bold text-gray-900 mb-5 truncate max-w-full" title={sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}>
+            {sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}
           </h2>
 
           <button

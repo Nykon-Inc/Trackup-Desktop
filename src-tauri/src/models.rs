@@ -24,6 +24,10 @@ pub struct Session {
     pub project_id: String,
     #[serde(default = "default_project_type")]
     pub project_type: String,
+    #[serde(default)]
+    pub duration_minutes: i64,
+    #[serde(default)]
+    pub target_name: Option<String>,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub is_active: bool,
@@ -60,6 +64,8 @@ pub struct SessionPayload {
     pub uuid: String,
     pub project_id: String,
     pub project_type: String,
+    pub duration_minutes: i64,
+    pub target_name: Option<String>,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub is_active: bool,
@@ -77,6 +83,10 @@ pub struct SyncSession {
     pub uuid: String,
     pub project_id: String,
     pub project_type: String,
+    #[serde(default)]
+    pub duration_minutes: i64,
+    #[serde(default)]
+    pub target_name: Option<String>,
     pub user_id: String,
     pub organization_id: String,
     pub start_time: i64,

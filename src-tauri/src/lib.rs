@@ -1,5 +1,6 @@
 use chrono::{Local, Timelike};
 use rusqlite::Connection;
+use serde::Serialize;
 use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -35,6 +36,15 @@ pub struct AppState {
     pub idle_state: Arc<IdleState>,
     pub client: reqwest::Client,
     pub current_idle_time: Mutex<Option<u64>>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TimeUpdatePayload {
+    time: String,
+    project_type: String,
+    project_id: String,
+    target_name: Option<String>,
 }
 
 #[tauri::command]
@@ -99,7 +109,8 @@ fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
             // Check if already active
             let active = db::get_active_session(&conn, &project_id).map_err(|e| e.to_string())?;
             if active.is_none() {
-                db::start_session(&conn, &project_id, "Project").map_err(|e| e.to_string())?;
+                db::start_session(&conn, &project_id, "Project", 0, None)
+                    .map_err(|e| e.to_string())?;
                 update_tray(&app, true, &user.email); // Refresh menu state
 
                 // Enable Idle Monitoring
@@ -139,18 +150,54 @@ fn stop_timer_internal(app: &AppHandle) -> Result<(), String> {
 
     let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
     if let Some(user) = user_opt {
-        if let Some(project_id) = user.current_project_id {
-            db::stop_session(&conn, &project_id).map_err(|e| e.to_string())?;
-            update_tray(&app, true, &user.email); // Refresh menu state
+        db::stop_all_active_sessions(&conn).map_err(|e| e.to_string())?;
+        update_tray(&app, true, &user.email); // Refresh menu state
 
-            // Disable Idle Monitoring
-            state
-                .idle_state
-                .is_monitoring
-                .store(false, Ordering::SeqCst);
+        // Disable Idle Monitoring
+        state
+            .idle_state
+            .is_monitoring
+            .store(false, Ordering::SeqCst);
 
-            let _ = app.emit("timer-active", false);
-        }
+        let _ = app.emit("timer-active", false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn start_break(
+    app: AppHandle,
+    policy_id: String,
+    duration_minutes: i64,
+    target_name: String,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
+
+    let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
+    if let Some(user) = user_opt {
+        // Stop any active work session or other break session
+        db::stop_all_active_sessions(&conn).map_err(|e| e.to_string())?;
+
+        // Start the break session
+        db::start_session(
+            &conn,
+            &policy_id,
+            "WorkBreakPolicy",
+            duration_minutes,
+            Some(target_name),
+        )
+        .map_err(|e| e.to_string())?;
+
+        update_tray(&app, true, &user.email); // Refresh menu state
+
+        // DISABLE monitoring during breaks
+        state
+            .idle_state
+            .is_monitoring
+            .store(false, Ordering::SeqCst);
+
+        let _ = app.emit("timer-active", true);
     }
     Ok(())
 }
@@ -221,12 +268,8 @@ fn get_project_today_total(app: AppHandle, project_id: String) -> Result<String,
 fn get_timer_status(app: AppHandle) -> bool {
     let state = app.state::<AppState>();
     if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
-        if let Ok(Some(user)) = db::get_user(&conn) {
-            if let Some(pid) = user.current_project_id {
-                if let Ok(Some(_)) = db::get_active_session(&conn, &pid) {
-                    return true;
-                }
-            }
+        if let Ok(Some(_)) = db::get_global_active_session(&conn) {
+            return true;
         }
     }
     false
@@ -400,6 +443,13 @@ pub fn update_tray<R: Runtime>(app: &AppHandle<R>, is_logged_in: bool, email: &s
     }
 }
 
+#[tauri::command]
+fn get_used_break_ids(app: AppHandle) -> Result<Vec<String>, String> {
+    let state = app.state::<AppState>();
+    let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
+    db::get_used_break_policy_ids_today(&conn).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let idle_state = Arc::new(IdleState::new());
@@ -561,17 +611,25 @@ pub fn run() {
 
                     let state = app_handle_for_thread.state::<AppState>();
 
-                    let mut time_str = "--:--:--".to_string();
+                    let mut payload = TimeUpdatePayload {
+                        time: "--:--:--".to_string(),
+                        project_type: "Project".to_string(),
+                        project_id: "".to_string(),
+                        target_name: None,
+                    };
                     let mut should_update_db = false;
                     let mut active_session_id = None;
 
                     if let Ok(conn) = Connection::open(&*state.db_path.lock().unwrap()) {
                         if let Ok(Some(user)) = db::get_user(&conn) {
                             if let Some(project_id) = user.current_project_id {
-                                // Check active session
-                                if let Ok(Some(session)) =
-                                    db::get_active_session(&conn, &project_id)
-                                {
+                                payload.project_id = project_id.clone();
+                                // Check active session (Global check to support Breaks)
+                                if let Ok(Some(session)) = db::get_global_active_session(&conn) {
+                                    payload.project_type = session.project_type.clone();
+                                    payload.project_id = session.project_id.clone();
+                                    payload.target_name = session.target_name.clone();
+
                                     // Check if session exceeds 10 minutes or crosses hour boundary
                                     let now = Local::now();
                                     let now_ms = now.timestamp_millis();
@@ -586,11 +644,20 @@ pub fn run() {
                                     let hour_changed = now.hour() != start_time_dt.hour()
                                         || now.date_naive() != start_time_dt.date_naive();
 
-                                    if duration >= 10 * 60 * 1000 || hour_changed {
+                                    if (session.project_type == "Project"
+                                        || session.project_type == "trackup")
+                                        && (duration >= 10 * 60 * 1000 || hour_changed)
+                                    {
                                         // Stop current session
                                         let _ = db::stop_session(&conn, &project_id);
                                         // Start new session
-                                        let _ = db::start_session(&conn, &project_id, "Project");
+                                        let _ = db::start_session(
+                                            &conn,
+                                            &project_id,
+                                            "Project",
+                                            0,
+                                            None,
+                                        );
 
                                         // Reset activity counts for the new session
                                         state.idle_state.keyboard_count.store(0, Ordering::Relaxed);
@@ -598,7 +665,7 @@ pub fn run() {
 
                                         // Refresh active session info
                                         if let Ok(Some(new_session)) =
-                                            db::get_active_session(&conn, &project_id)
+                                            db::get_global_active_session(&conn)
                                         {
                                             should_update_db = true;
                                             active_session_id = new_session.id;
@@ -608,25 +675,41 @@ pub fn run() {
                                         active_session_id = session.id;
                                     }
 
-                                    // Calculate total time
-                                    if let Ok(total) = db::get_today_total_time(&conn, &project_id)
-                                    {
-                                        time_str = format_duration(total);
+                                    // Calculate Display Time
+                                    if session.project_type == "WorkBreakPolicy" {
+                                        let elapsed_secs = duration / 1000;
+                                        let total_secs = session.duration_minutes * 60;
+                                        let remaining_secs =
+                                            total_secs.saturating_sub(elapsed_secs);
+
+                                        payload.time = format_duration(remaining_secs as u64);
+
+                                        // Auto-stop if reached zero
+                                        if remaining_secs <= 0 {
+                                            let _ = db::stop_all_active_sessions(&conn);
+                                            let _ =
+                                                app_handle_for_thread.emit("timer-active", false);
+                                            // update tray to project state
+                                            update_tray(&app_handle_for_thread, true, &user.email);
+                                        }
+                                    } else {
+                                        if let Ok(total) =
+                                            db::get_today_total_time(&conn, &project_id)
+                                        {
+                                            payload.time = format_duration(total);
+                                        }
                                     }
                                 } else {
-                                    // No active session, just show total
+                                    // No active session
                                     if let Ok(total) = db::get_today_total_time(&conn, &project_id)
                                     {
-                                        time_str = format_duration(total);
+                                        payload.time = format_duration(total);
                                     } else {
-                                        time_str = "00:00:00".to_string();
+                                        payload.time = "00:00:00".to_string();
                                     }
                                 }
                             } else {
-                                // Logged in but no project -> 00:00:00 per specs? or --:--:--?
-                                // "if logged in and no sessions for current project" -> implies project selected.
-                                // If no project selected, maybe 00:00:00?
-                                time_str = "00:00:00".to_string();
+                                payload.time = "00:00:00".to_string();
                             }
                         }
                     }
@@ -645,13 +728,13 @@ pub fn run() {
                     }
 
                     if let Some(tray) = app_handle_for_thread.tray_by_id("main") {
-                        if let Some(icon) = tray_generator::generate_tray_icon(&time_str) {
+                        if let Some(icon) = tray_generator::generate_tray_icon(&payload.time) {
                             let _ = tray.set_icon(Some(icon));
                         }
                     }
 
                     // Emit time update to Vite app
-                    let _ = app_handle_for_thread.emit("time-update", &time_str);
+                    let _ = app_handle_for_thread.emit("time-update", &payload);
                 }
             });
 
@@ -681,7 +764,9 @@ pub fn run() {
             check_permissions,
             open_permissions_settings,
             get_timer_status,
-            get_idle_time
+            get_idle_time,
+            start_break,
+            get_used_break_ids
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

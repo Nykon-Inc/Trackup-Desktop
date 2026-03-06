@@ -162,7 +162,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
             let mut synced_session_uuids = Vec::new();
             if !pending_sess.is_empty() {
                 println!("Monitor: Syncing {} sessions...", pending_sess.len());
-                let endpoint = "/client/sessions";
+                let endpoint = "/desktop/sessions";
 
                 // Log total activity for this sync batch
                 let mut total_kb = 0;
@@ -188,6 +188,8 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                             uuid: s.uuid.clone(),
                             project_id: s.project_id.clone(),
                             project_type: s.project_type.clone(),
+                            duration_minutes: s.duration_minutes,
+                            target_name: s.target_name.clone(),
                             start_time: s.start_time,
                             end_time: s.end_time,
                             is_active: s.is_active,
@@ -252,7 +254,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                         match api::request(
                             &app_inner,
                             reqwest::Method::POST,
-                            "/client/screenshots",
+                            "/desktop/screenshots",
                             Some(&payload),
                         )
                         .await
@@ -327,7 +329,7 @@ pub fn sync_daily_sessions<R: Runtime>(app: &AppHandle<R>) {
         let app_state = app_handle.state::<AppState>();
         let db_path = app_state.db_path.lock().unwrap().clone();
 
-        let endpoint = "/client/sessions/today";
+        let endpoint = "/desktop/sessions/today";
         match api::request::<R, ()>(&app_handle, reqwest::Method::GET, endpoint, None).await {
             Ok(response) => {
                 if response.status().is_success() {

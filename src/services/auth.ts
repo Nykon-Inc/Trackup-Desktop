@@ -68,6 +68,17 @@ export const authenticateUser = async (email: string, password: string) => {
     return payload;
 };
 
+export interface WorkBreakPolicy {
+    id: string;
+    name: string;
+    description: string;
+    duration: number;
+    paid: boolean;
+    enabled: boolean;
+    organizationId: string;
+    projectIds: string[];
+}
+
 export const fetchProjects = async (token: string) => {
     const projectsResponse = await api.get<{ results: Project[] }>(`/v1/desktop/projects?projectType=trackup`, {
         headers: {
@@ -76,4 +87,14 @@ export const fetchProjects = async (token: string) => {
         }
     });
     return projectsResponse.data.results;
+};
+
+export const fetchWorkBreakPolicies = async (token: string, projectId: string) => {
+    const response = await api.get<WorkBreakPolicy[]>(`/v1/desktop/projects/${projectId}/work-break-policy`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'x-app-source': 'desktop'
+        }
+    });
+    return response.data;
 };

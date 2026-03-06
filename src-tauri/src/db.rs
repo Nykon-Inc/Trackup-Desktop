@@ -42,6 +42,8 @@ const SCHEMA: &[DbTable] = &[
             DbColumn { name: "uuid", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "project_id", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "project_type", def: "TEXT DEFAULT 'Project'", type_affinity: "TEXT" },
+            DbColumn { name: "duration_minutes", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
+            DbColumn { name: "target_name", def: "TEXT", type_affinity: "TEXT" },
             DbColumn { name: "start_time", def: "INTEGER NOT NULL", type_affinity: "INTEGER" },
             DbColumn { name: "end_time", def: "INTEGER", type_affinity: "INTEGER" },
             DbColumn { name: "is_active", def: "INTEGER DEFAULT 0", type_affinity: "INTEGER" },
@@ -196,7 +198,7 @@ use uuid::Uuid;
 
 pub fn get_session_by_uuid(conn: &Connection, uuid: &str) -> Result<Option<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
+        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events, duration_minutes, target_name 
          FROM sessions 
          WHERE uuid = ?1"
     )?;
@@ -216,6 +218,8 @@ pub fn get_session_by_uuid(conn: &Connection, uuid: &str) -> Result<Option<Sessi
             status: row.get(9)?,
             keyboard_events: row.get(10)?,
             mouse_events: row.get(11)?,
+            duration_minutes: row.get(12)?,
+            target_name: row.get(13)?,
         }))
     } else {
         Ok(None)
@@ -224,7 +228,7 @@ pub fn get_session_by_uuid(conn: &Connection, uuid: &str) -> Result<Option<Sessi
 
 pub fn get_active_session(conn: &Connection, project_id: &str) -> Result<Option<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
+        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events, duration_minutes, target_name 
          FROM sessions 
          WHERE project_id = ?1 AND is_active = 1 
          LIMIT 1"
@@ -245,19 +249,52 @@ pub fn get_active_session(conn: &Connection, project_id: &str) -> Result<Option<
             status: row.get(9)?,
             keyboard_events: row.get(10)?,
             mouse_events: row.get(11)?,
+            duration_minutes: row.get(12)?,
+            target_name: row.get(13)?,
         }))
     } else {
         Ok(None)
     }
 }
 
-pub fn start_session(conn: &Connection, project_id: &str, project_type: &str) -> Result<(), rusqlite::Error> {
+pub fn get_global_active_session(conn: &Connection) -> Result<Option<Session>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events, duration_minutes, target_name 
+         FROM sessions 
+         WHERE is_active = 1 
+         LIMIT 1"
+    )?;
+    
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Session {
+            id: Some(row.get(0)?),
+            uuid: row.get(1)?,
+            project_id: row.get(2)?,
+            project_type: row.get(3)?,
+            start_time: row.get(4)?,
+            end_time: row.get(5)?,
+            is_active: row.get(6)?,
+            idle_seconds: row.get(7)?,
+            deducted_seconds: row.get(8)?,
+            status: row.get(9)?,
+            keyboard_events: row.get(10)?,
+            mouse_events: row.get(11)?,
+            duration_minutes: row.get(12)?,
+            target_name: row.get(13)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn start_session(conn: &Connection, project_id: &str, project_type: &str, duration_minutes: i64, target_name: Option<String>) -> Result<(), rusqlite::Error> {
     let start_time = Local::now().timestamp_millis();
     let uuid = Uuid::new_v4().to_string();
-    println!("DB: Starting session for project {}, type {}, uuid {}", project_id, project_type, uuid);
+    println!("DB: Starting session for project {}, type {}, duration {}, uuid {}", project_id, project_type, duration_minutes, uuid);
     conn.execute(
-        "INSERT INTO sessions (uuid, project_id, project_type, start_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) VALUES (?1, ?2, ?3, ?4, 1, 0, 0, 'pending', 0, 0)",
-        (uuid, project_id, project_type, start_time),
+        "INSERT INTO sessions (uuid, project_id, project_type, duration_minutes, target_name, start_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, 0, 'pending', 0, 0)",
+        (uuid, project_id, project_type, duration_minutes, target_name, start_time),
     )?;
     Ok(())
 }
@@ -287,12 +324,14 @@ pub fn stop_all_active_sessions(conn: &Connection) -> Result<(), rusqlite::Error
 pub fn create_imported_session(conn: &Connection, session: &crate::models::SyncSession) -> Result<(), rusqlite::Error> {
     println!("DB: Importing session {}", session.uuid);
     conn.execute(
-        "INSERT INTO sessions (uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, 0)",
+        "INSERT INTO sessions (uuid, project_id, project_type, duration_minutes, target_name, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, 0)",
         (   
             &session.uuid, 
             &session.project_id, 
             &session.project_type,
+            session.duration_minutes,
+            &session.target_name,
             session.start_time, 
             session.end_time,
             session.is_active,
@@ -308,8 +347,8 @@ pub fn update_imported_session(conn: &Connection, session: &crate::models::SyncS
     println!("DB: Updating imported session {}", session.uuid);
     conn.execute(
         "UPDATE sessions 
-         SET start_time = ?1, end_time = ?2, is_active = ?3, idle_seconds = ?4, deducted_seconds = ?5, project_type = ?6, status = 'done'
-         WHERE uuid = ?7",
+         SET start_time = ?1, end_time = ?2, is_active = ?3, idle_seconds = ?4, deducted_seconds = ?5, project_type = ?6, duration_minutes = ?7, target_name = ?8, status = 'done'
+         WHERE uuid = ?9",
         (
             session.start_time,
             session.end_time,
@@ -317,6 +356,8 @@ pub fn update_imported_session(conn: &Connection, session: &crate::models::SyncS
             session.idle_seconds,
             session.deducted_seconds,
             &session.project_type,
+            session.duration_minutes,
+            &session.target_name,
             &session.uuid
         ),
     )?;
@@ -492,7 +533,7 @@ fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Re
 
 pub fn get_pending_sessions(conn: &Connection) -> Result<Vec<Session>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events 
+        "SELECT id, uuid, project_id, project_type, start_time, end_time, is_active, idle_seconds, deducted_seconds, status, keyboard_events, mouse_events, duration_minutes, target_name 
          FROM sessions
          WHERE status = 'pending'"
     )?;
@@ -511,9 +552,32 @@ pub fn get_pending_sessions(conn: &Connection) -> Result<Vec<Session>, rusqlite:
             status: row.get(9)?,
             keyboard_events: row.get(10)?,
             mouse_events: row.get(11)?,
+            duration_minutes: row.get(12)?,
+            target_name: row.get(13)?,
         })
     })?;
 
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+pub fn get_used_break_policy_ids_today(conn: &Connection) -> Result<Vec<String>, rusqlite::Error> {
+    let now = Local::now();
+    let start_of_day = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap().timestamp_millis();
+    
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT project_id 
+         FROM sessions 
+         WHERE project_type = 'WorkBreakPolicy' AND start_time >= ?1"
+    )?;
+    
+    let rows = stmt.query_map([start_of_day], |row| {
+        row.get(0)
+    })?;
+    
     let mut result = Vec::new();
     for row in rows {
         result.push(row?);
