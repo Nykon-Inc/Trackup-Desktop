@@ -13,6 +13,10 @@ import { BreakModal } from "./components/BreakModal";
 interface Project {
   id: string;
   name: string;
+  weeklyLimitHours: number | null;
+  dailyLimitHours: number | null;
+  screenshotsEnabled: boolean;
+  totalHoursThisWeek: number | null;
 }
 
 interface User {
@@ -125,11 +129,16 @@ function MainWindow() {
       setIsActive(event.payload);
     });
 
+    const unlistenLimit = listen<string>("limit-reached", (event) => {
+      alert(event.payload);
+    });
+
     return () => {
       unlistenLogin.then(f => f());
       unlistenLogout.then(f => f());
       unlistenTime.then(f => f());
       unlistenActive.then(f => f());
+      unlistenLimit.then(f => f());
     };
   }, []);
 
@@ -141,7 +150,14 @@ function MainWindow() {
           // Fetch fresh projects
           console.log(user.token)
           const fetchedProjects = await fetchProjects(user.token);
-          const mappedProjects = fetchedProjects.map(p => ({ id: p.id, name: p.name }));
+          const mappedProjects: Project[] = fetchedProjects.map(p => ({
+            id: p.id,
+            name: p.name,
+            weeklyLimitHours: p.weeklyLimitHours,
+            dailyLimitHours: p.dailyLimitHours,
+            screenshotsEnabled: p.screenshotsEnabled,
+            totalHoursThisWeek: p.totalHoursThisWeek
+          }));
 
           // Update user object
           user = { ...user, projects: mappedProjects };
@@ -194,10 +210,22 @@ function MainWindow() {
       if (isActive) {
         await invoke("stop_timer");
       } else {
+        // Frontend limit check
+        if (currentProject) {
+          if (currentProject.dailyLimitHours) {
+            // Simple check against today's total from component state or recalculated
+            // For better UX, we'll let the backend verify accurately, but we can do a quick check
+          }
+        }
         await invoke("start_timer");
       }
     } catch (err) {
       console.error("Failed to toggle timer", err);
+      if (typeof err === "string" && err.includes("limit reached")) {
+        alert(err);
+      } else {
+        alert("Failed to toggle timer: " + err);
+      }
     }
   }
 
@@ -280,7 +308,11 @@ function MainWindow() {
           </button>
 
           <div className="flex items-center justify-between w-full mt-6 text-[11px] text-gray-400 font-semibold px-2">
-            <span>NO LIMITS</span>
+            <span>
+              {currentProject?.weeklyLimitHours
+                ? `${(currentProject.totalHoursThisWeek || 0).toFixed(2)} / ${currentProject.weeklyLimitHours} hrs`
+                : "NO LIMITS"}
+            </span>
             <span>TODAY: {totalToday}</span>
           </div>
         </div>

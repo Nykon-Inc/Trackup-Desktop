@@ -109,6 +109,26 @@ fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
             // Check if already active
             let active = db::get_active_session(&conn, &project_id).map_err(|e| e.to_string())?;
             if active.is_none() {
+                // Check Limits
+                if let Some(project) = user.projects.iter().find(|p| p.id == project_id) {
+                    // Check Daily Limit
+                    if let Some(daily_limit) = project.daily_limit_hours {
+                        let today_total = db::get_today_total_time(&conn, &project_id)
+                            .map_err(|e| e.to_string())?;
+                        if (today_total as f64) / 3600.0 >= daily_limit {
+                            return Err("Daily limit reached for this project".to_string());
+                        }
+                    }
+
+                    // Check Weekly Limit
+                    if let Some(weekly_limit) = project.weekly_limit_hours {
+                        let total_this_week = project.total_hours_this_week.unwrap_or(0.0);
+                        if total_this_week >= weekly_limit {
+                            return Err("Weekly limit reached for this project".to_string());
+                        }
+                    }
+                }
+
                 db::start_session(&conn, &project_id, "Project", 0, None)
                     .map_err(|e| e.to_string())?;
                 update_tray(&app, true, &user.email); // Refresh menu state
@@ -693,10 +713,39 @@ pub fn run() {
                                             update_tray(&app_handle_for_thread, true, &user.email);
                                         }
                                     } else {
-                                        if let Ok(total) =
-                                            db::get_today_total_time(&conn, &project_id)
+                                        if let Ok(total) = db::get_today_total_time(&conn, &project_id)
                                         {
                                             payload.time = format_duration(total);
+
+                                            // Check Limits during active session
+                                            if let Some(project) = user.projects.iter().find(|p| p.id == project_id) {
+                                                let mut limit_reached = false;
+                                                let mut limit_msg = "";
+
+                                                if let Some(daily_limit) = project.daily_limit_hours {
+                                                    if (total as f64) / 3600.0 >= daily_limit {
+                                                        limit_reached = true;
+                                                        limit_msg = "Daily limit reached for this project";
+                                                    }
+                                                }
+
+                                                if !limit_reached {
+                                                    if let Some(weekly_limit) = project.weekly_limit_hours {
+                                                        let total_this_week = project.total_hours_this_week.unwrap_or(0.0);
+                                                        if total_this_week >= weekly_limit {
+                                                            limit_reached = true;
+                                                            limit_msg = "Weekly limit reached for this project";
+                                                        }
+                                                    }
+                                                }
+
+                                                if limit_reached {
+                                                    let _ = db::stop_all_active_sessions(&conn);
+                                                    let _ = app_handle_for_thread.emit("timer-active", false);
+                                                    let _ = app_handle_for_thread.emit("limit-reached", limit_msg);
+                                                    update_tray(&app_handle_for_thread, true, &user.email);
+                                                }
+                                            }
                                         }
                                     }
                                 } else {

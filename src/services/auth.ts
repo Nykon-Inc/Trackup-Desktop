@@ -20,6 +20,10 @@ export interface Project {
     organizationId: string;
     createdAt: string;
     updatedAt: string;
+    weeklyLimitHours: number | null;
+    dailyLimitHours: number | null;
+    screenshotsEnabled: boolean;
+    totalHoursThisWeek: number | null;
 }
 
 interface LoginResponse {
@@ -58,7 +62,7 @@ export const authenticateUser = async (email: string, password: string) => {
         email: account.email,
         token,
         refresh_token: credentials.refresh.token,
-        projects: projects.map(e => ({ name: e.name, id: e.id })),
+        projects: projects,
         // We can add a derived field for existing logic if needed, 
         // but for now we basically merge the info.
         uuid: account.id, // For compatibility with typical frontend usage if it expects uuid
@@ -86,6 +90,7 @@ export const fetchProjects = async (token: string) => {
             'x-app-source': 'desktop'
         }
     });
+    console.log(projectsResponse.data.results)
     return projectsResponse.data.results;
 };
 

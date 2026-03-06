@@ -32,6 +32,10 @@ const SCHEMA: &[DbTable] = &[
         columns: &[
             DbColumn { name: "id", def: "TEXT NOT NULL", type_affinity: "TEXT" },
             DbColumn { name: "name", def: "TEXT NOT NULL", type_affinity: "TEXT" },
+            DbColumn { name: "weekly_limit_hours", def: "REAL", type_affinity: "REAL" },
+            DbColumn { name: "daily_limit_hours", def: "REAL", type_affinity: "REAL" },
+            DbColumn { name: "screenshots_enabled", def: "INTEGER DEFAULT 1", type_affinity: "INTEGER" },
+            DbColumn { name: "total_hours_this_week", def: "REAL", type_affinity: "REAL" },
         ],
         constraints: Some("PRIMARY KEY (id)"),
     },
@@ -164,8 +168,15 @@ pub fn save_user(conn: &mut Connection, user: &User) -> Result<(), rusqlite::Err
      // Insert projects
      for project in &user.projects {
          tx.execute(
-             "INSERT INTO projects (id, name) VALUES (?1, ?2)",
-             [&project.id, &project.name],
+             "INSERT INTO projects (id, name, weekly_limit_hours, daily_limit_hours, screenshots_enabled, total_hours_this_week) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (
+                 &project.id, 
+                 &project.name,
+                 project.weekly_limit_hours,
+                 project.daily_limit_hours,
+                 project.screenshots_enabled as i32,
+                 project.total_hours_this_week,
+             ),
          )?;
      }
 
@@ -509,11 +520,15 @@ pub fn get_pending_screenshots(conn: &Connection) -> Result<Vec<(i64, String, St
 
 
 fn api_user_from_row(row: &rusqlite::Row, conn: &Connection, uuid: String) -> Result<User, rusqlite::Error> {
-    let mut projects_stmt = conn.prepare("SELECT id, name FROM projects")?;
+    let mut projects_stmt = conn.prepare("SELECT id, name, weekly_limit_hours, daily_limit_hours, screenshots_enabled, total_hours_this_week FROM projects")?;
     let projects = projects_stmt.query_map([], |p_row| {
         Ok(Project {
             id: p_row.get(0)?,
             name: p_row.get(1)?,
+            weekly_limit_hours: p_row.get(2)?,
+            daily_limit_hours: p_row.get(3)?,
+            screenshots_enabled: p_row.get::<_, i32>(4)? != 0,
+            total_hours_this_week: p_row.get(5)?,
         })
     })?.collect::<Result<Vec<_>, _>>()?;
     

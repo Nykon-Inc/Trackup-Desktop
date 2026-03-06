@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: String,
     pub name: String,
+    pub weekly_limit_hours: Option<f64>,
+    pub daily_limit_hours: Option<f64>,
+    pub screenshots_enabled: bool,
+    pub total_hours_this_week: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

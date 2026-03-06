@@ -102,6 +102,12 @@ pub fn start_capture_loop<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) 
                     if let Ok(conn) = Connection::open(&db_path) {
                         if let Ok(Some(user)) = db::get_user(&conn) {
                             if let Some(pid) = user.current_project_id {
+                                if let Some(project) = user.projects.iter().find(|p| p.id == pid) {
+                                    if !project.screenshots_enabled {
+                                        println!("Monitor: Screenshots disabled for project {}. Skipping capture.", pid);
+                                        return;
+                                    }
+                                }
                                 if let Ok(Some(session)) = db::get_active_session(&conn, &pid) {
                                     match capture_screen() {
                                         Ok(b64) => {
