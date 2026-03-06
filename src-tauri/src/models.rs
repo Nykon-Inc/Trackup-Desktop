@@ -22,6 +22,8 @@ pub struct Session {
     pub id: Option<i64>,
     pub uuid: String,
     pub project_id: String,
+    #[serde(default = "default_project_type")]
+    pub project_type: String,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub is_active: bool,
@@ -33,6 +35,10 @@ pub struct Session {
     pub keyboard_events: i64,
     #[serde(default)]
     pub mouse_events: i64,
+}
+
+fn default_project_type() -> String {
+    "Project".to_string()
 }
 
 fn default_status() -> String {
@@ -53,6 +59,7 @@ pub struct ActivityLog {
 pub struct SessionPayload {
     pub uuid: String,
     pub project_id: String,
+    pub project_type: String,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub is_active: bool,
@@ -69,6 +76,7 @@ pub struct SessionPayload {
 pub struct SyncSession {
     pub uuid: String,
     pub project_id: String,
+    pub project_type: String,
     pub user_id: String,
     pub organization_id: String,
     pub start_time: i64,

@@ -187,6 +187,7 @@ pub fn upload_pending_screenshots<R: Runtime>(app: &AppHandle<R>) {
                         SessionPayload {
                             uuid: s.uuid.clone(),
                             project_id: s.project_id.clone(),
+                            project_type: s.project_type.clone(),
                             start_time: s.start_time,
                             end_time: s.end_time,
                             is_active: s.is_active,

@@ -99,7 +99,7 @@ fn start_timer_internal(app: &AppHandle) -> Result<(), String> {
             // Check if already active
             let active = db::get_active_session(&conn, &project_id).map_err(|e| e.to_string())?;
             if active.is_none() {
-                db::start_session(&conn, &project_id).map_err(|e| e.to_string())?;
+                db::start_session(&conn, &project_id, "Project").map_err(|e| e.to_string())?;
                 update_tray(&app, true, &user.email); // Refresh menu state
 
                 // Enable Idle Monitoring
@@ -590,7 +590,7 @@ pub fn run() {
                                         // Stop current session
                                         let _ = db::stop_session(&conn, &project_id);
                                         // Start new session
-                                        let _ = db::start_session(&conn, &project_id);
+                                        let _ = db::start_session(&conn, &project_id, "Project");
 
                                         // Reset activity counts for the new session
                                         state.idle_state.keyboard_count.store(0, Ordering::Relaxed);
