@@ -121,8 +121,8 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
             }
 
             let diff = now.saturating_sub(last);
-            if diff >= 120 {
-                // 2 Minutes
+            if diff >= 300 {
+                // 5 Minutes
                 let app_inner = app.clone();
                 // Notify main thread
                 let _ = app.clone().run_on_main_thread(move || {
@@ -186,7 +186,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                     let last_recorded = state.last_activity_timestamp.swap(now, Ordering::Relaxed);
                     let diff = now.saturating_sub(last_recorded);
 
-                    if diff >= 120 {
+                    if diff >= 300 {
                         let app_inner = app.clone();
                         let _ = app.run_on_main_thread(move || {
                             let _ = app_inner.emit("internal:idle_gap_detected", diff);
@@ -238,7 +238,7 @@ fn run_os_listener<R: Runtime>(app: AppHandle<R>, state: Arc<IdleState>) {
                 let last_recorded = state.last_activity_timestamp.swap(now, Ordering::Relaxed);
 
                 let diff = now.saturating_sub(last_recorded);
-                if diff >= 120 {
+                if diff >= 300 {
                     let app_inner = app.clone();
                     let _ = app.run_on_main_thread(move || {
                         let _ = app_inner.emit("internal:idle_gap_detected", diff);

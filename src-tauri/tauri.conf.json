@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Trackup",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "identifier": "ai.regenta.trackup",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -20,9 +20,9 @@
       },
       {
         "label": "idle",
-        "title": "Idle Detection",
+        "title": "Idle time alert",
         "width": 500,
-        "height": 400,
+        "height": 450,
         "url": "/idle",
         "visible": false,
         "center": true,

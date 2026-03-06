@@ -156,35 +156,18 @@ fn stop_timer_internal(app: &AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn process_idle_choice(app: AppHandle, idle_time: i64, keep: bool) -> Result<(), String> {
+fn process_idle_choice(
+    app: AppHandle,
+    idle_time: i64,
+    keep: bool,
+    resume: bool,
+) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = Connection::open(&*state.db_path.lock().unwrap()).map_err(|e| e.to_string())?;
 
     let user_opt = db::get_user(&conn).map_err(|e| e.to_string())?;
     if let Some(user) = user_opt {
         if let Some(project_id) = user.current_project_id {
-            // Logic:
-            // 1. We assume the session was JUST stopped (because modal is shown).
-            //    So we need to find the latest (closed) session to update.
-            //    Or we could just update "last session for this project".
-
-            // Wait, db::process_idle_time updates "active" session.
-            // BUT we stopped the session!
-            // So we need a new db function or modify process_idle_time to target the latest closed session.
-            // Let's modify db.rs later? Or write a raw query here?
-            // Cleanest is to have db::process_last_session_idle_time
-
-            // For now let's assume we implement `process_last_session_idle_time` in db.rs
-            // Or we check `db.rs` manually.
-
-            // Using a manual update for expediency to match the logic requested:
-            // "if user says discard... subtract idle time from total time... restart timer"
-
-            // Deduct logic:
-            // The session is closed. total_time = end - start - deducted.
-            // We want to increase `deducted` by idle_time if Discard.
-            // We want to increase `idle_seconds` by idle_time if Keep.
-
             let inc_idle = idle_time;
             let inc_deducted = if !keep { idle_time } else { 0 };
 
@@ -198,8 +181,10 @@ fn process_idle_choice(app: AppHandle, idle_time: i64, keep: bool) -> Result<(),
             // Reset current idle time
             *state.current_idle_time.lock().unwrap() = None;
 
-            // Restart Timer
-            start_timer_internal(&app)?;
+            // Conditionally Restart Timer
+            if resume {
+                start_timer_internal(&app)?;
+            }
         }
     }
 

@@ -1,33 +1,52 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+
+interface Project {
+    id: string;
+    name: string;
+}
+
+interface User {
+    uuid: string;
+    name: string;
+    email: string;
+    token: string;
+    projects: Project[];
+    current_project_id?: string;
+}
 
 export function IdleWindow() {
     const [idleTime, setIdleTime] = useState<number | null>(null);
+    const [user, setUser] = useState<User | null>(null);
+    const [keepChoice, setKeepChoice] = useState<boolean>(false); // Default: Discard (No)
 
     useEffect(() => {
         const checkIdle = () => {
             invoke<number | null>("get_idle_time").then((res) => {
                 if (res !== null) {
-                    console.log("IdleWindow: Fetched idle time:", res);
                     setIdleTime(res);
                 }
             });
         };
 
-        // 1. Initial Fetch
-        checkIdle();
+        const fetchUser = async () => {
+            try {
+                const u = await invoke<User | null>("check_auth");
+                setUser(u);
+            } catch (err) {
+                console.error("Failed to fetch user", err);
+            }
+        };
 
-        // 2. Listen for focus (Reliable trigger when Rust shows the window)
+        checkIdle();
+        fetchUser();
+
         const unlistenFocus = listen("tauri://focus", () => {
-            console.log("IdleWindow: Window focused, re-checking idle time");
             checkIdle();
         });
 
-        // 3. Event Listener (fallback)
         const unlistenIdle = listen<number>("idle_ended", (event) => {
-            console.log("IdleWindow received idle_ended event:", event.payload);
             setIdleTime(event.payload);
         });
 
@@ -37,55 +56,110 @@ export function IdleWindow() {
         };
     }, []);
 
-    async function handleChoice(keep: boolean) {
+    async function handleChoice(resume: boolean) {
         if (idleTime === null) return;
         try {
-            await invoke("process_idle_choice", { idleTime, keep });
-            // Close this window after choice
-            const win = getCurrentWindow();
-            await win.hide(); // Hide instead of close to reuse? Or close.
-            // If we reuse, hide.
+            await invoke("process_idle_choice", {
+                idleTime,
+                keep: keepChoice,
+                resume
+            });
         } catch (err) {
             console.error("Failed to process idle choice", err);
         }
     }
 
-    if (idleTime === null) return <div className="p-4 text-center">Waiting for idle status...</div>;
+    if (idleTime === null) {
+        return (
+            <div className="h-screen bg-gray-100 flex items-center justify-center font-sans">
+                <div className="text-gray-500 font-medium">Waiting for idle status...</div>
+            </div>
+        );
+    }
 
     const minutes = Math.floor(idleTime / 60);
-    const seconds = idleTime % 60;
+    const currentProject = user?.projects.find(p => p.id === user.current_project_id);
 
     return (
-        <div className="h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-            <div className="flex items-start gap-4 mb-6">
-                <div className="p-3 bg-yellow-100 rounded-full shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                </div>
-                <div className="flex-1">
-                    <h3 className="text-lg font-bold text-gray-900">You were away</h3>
-                    <p className="mt-2 text-gray-600 leading-relaxed">
-                        We detected no activity for <span className="font-bold text-gray-900">{minutes} minutes and {seconds} seconds</span>.
-                        Would you like to include this time in your session?
-                    </p>
-                </div>
-            </div>
+        <div className="h-screen flex items-center justify-center font-sans select-none overflow-hidden">
+            <div className="w-full bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] p-8 flex flex-col">
+                {/* Info Card */}
+                <div className="border border-[#E8EAED] rounded-2xl p-6 mb-8">
+                    <div className="mb-4">
+                        <span className="text-[10px] font-bold text-[#9AA0A6] tracking-wider uppercase">
+                            YOU HAVE BEEN IDLE FOR
+                        </span>
+                        <div className="text-lg font-bold text-[#202124] mt-1">
+                            {minutes} minutes
+                        </div>
+                    </div>
 
-            <div className="flex gap-3 justify-center w-full">
-                <button
-                    onClick={() => handleChoice(false)}
-                    className="flex-1 max-w-[140px] px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
-                >
-                    Discard Time
-                </button>
-                <button
-                    onClick={() => handleChoice(true)}
-                    className="flex-1 max-w-[140px] px-4 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
-                >
-                    Keep Time
-                </button>
+                    <div className="h-px bg-[#E8EAED] w-full mb-4"></div>
+
+                    <div className="flex justify-between items-end">
+                        <div className="space-y-1">
+                            <div className="text-[12px] text-[#5F6368]">
+                                <span className="font-medium">Project:</span> {currentProject?.name || "-"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Choice Section */}
+                <div className="mb-10 text-[13px] mt-8">
+                    <p className="text-[#202124] font-medium mb-4">Were you working?</p>
+                    <div className="space-y-2">
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                            <div className="relative flex items-center justify-center">
+                                <input
+                                    type="radio"
+                                    name="idleChoice"
+                                    checked={!keepChoice}
+                                    onChange={() => setKeepChoice(false)}
+                                    className="appearance-none w-5 h-5 border-2 border-[#DADCE0] rounded-full checked:border-[#1A73E8] transition-all cursor-pointer"
+                                />
+                                {!keepChoice && (
+                                    <div className="absolute w-2.5 h-2.5 bg-[#1A73E8] rounded-full"></div>
+                                )}
+                            </div>
+                            <span className="text-[#3C4043] font-medium">No, discard idle time</span>
+                        </label>
+
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                            <div className="relative flex items-center justify-center">
+                                <input
+                                    type="radio"
+                                    name="idleChoice"
+                                    checked={keepChoice}
+                                    onChange={() => setKeepChoice(true)}
+                                    className="appearance-none w-5 h-5 border-2 border-[#DADCE0] rounded-full checked:border-[#1A73E8] transition-all cursor-pointer"
+                                />
+                                {keepChoice && (
+                                    <div className="absolute w-2.5 h-2.5 bg-[#1A73E8] rounded-full"></div>
+                                )}
+                            </div>
+                            <span className="text-[#3C4043] font-medium">Yes, keep idle time</span>
+                        </label>
+                    </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex items-center justify-end gap-3 mt-auto">
+                    <button
+                        onClick={() => handleChoice(false)}
+                        className="px-4 py-2 text-[11px] font-bold text-[#3C4043] bg-white border border-[#DADCE0] rounded-lg hover:bg-[#F8F9FA] transition-colors cursor-pointer"
+                    >
+                        Stop timer
+                    </button>
+                    <button
+                        onClick={() => handleChoice(true)}
+                        className="px-4 py-2 text-[11px] font-bold text-white bg-[#1A73E8] rounded-lg hover:bg-[#185ABC] shadow-md transition-colors cursor-pointer"
+                    >
+                        Resume timer
+                    </button>
+                </div>
             </div>
         </div>
     );
 }
+
