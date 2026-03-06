@@ -7,26 +7,33 @@ export function IdleWindow() {
     const [idleTime, setIdleTime] = useState<number | null>(null);
 
     useEffect(() => {
-        // Listen for the specific idle event on this window or general event
-        // OR we can pass it as a query param if window is opened with it
-        // But since Rust emits it, let's listen.
-        const unlisten = listen<number>("idle_ended", (event) => {
-            console.log("IdleWindow received idle_ended event:", event.payload);
-            setIdleTime(event.payload);
-            const win = getCurrentWindow();
-            win.show();
-            win.setFocus();
+        const checkIdle = () => {
+            invoke<number | null>("get_idle_time").then((res) => {
+                if (res !== null) {
+                    console.log("IdleWindow: Fetched idle time:", res);
+                    setIdleTime(res);
+                }
+            });
+        };
+
+        // 1. Initial Fetch
+        checkIdle();
+
+        // 2. Listen for focus (Reliable trigger when Rust shows the window)
+        const unlistenFocus = listen("tauri://focus", () => {
+            console.log("IdleWindow: Window focused, re-checking idle time");
+            checkIdle();
         });
 
-        // Also check query params if passed on load
-        const params = new URLSearchParams(window.location.search);
-        const timeParam = params.get('time');
-        if (timeParam) {
-            setIdleTime(parseInt(timeParam));
-        }
+        // 3. Event Listener (fallback)
+        const unlistenIdle = listen<number>("idle_ended", (event) => {
+            console.log("IdleWindow received idle_ended event:", event.payload);
+            setIdleTime(event.payload);
+        });
 
         return () => {
-            unlisten.then((f) => f());
+            unlistenFocus.then((f) => f());
+            unlistenIdle.then((f) => f());
         };
     }, []);
 

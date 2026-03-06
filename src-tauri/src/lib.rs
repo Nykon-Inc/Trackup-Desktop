@@ -34,6 +34,7 @@ pub struct AppState {
     pub db_path: Mutex<PathBuf>,
     pub idle_state: Arc<IdleState>,
     pub client: reqwest::Client,
+    pub current_idle_time: Mutex<Option<u64>>,
 }
 
 #[tauri::command]
@@ -194,11 +195,20 @@ fn process_idle_choice(app: AppHandle, idle_time: i64, keep: bool) -> Result<(),
                  WHERE id = (SELECT id FROM sessions WHERE project_id = ?3 ORDER BY start_time DESC LIMIT 1)",
                 (inc_idle, inc_deducted, &project_id),
             ).map_err(|e| e.to_string())?;
+            // Reset current idle time
+            *state.current_idle_time.lock().unwrap() = None;
 
             // Restart Timer
             start_timer_internal(&app)?;
         }
     }
+
+    // Hide the idle window regardless of logic path
+    if let Some(window) = app.get_webview_window("idle") {
+        println!("Rust: Hiding idle window after choice");
+        let _ = window.hide();
+    }
+
     Ok(())
 }
 
@@ -260,6 +270,13 @@ async fn check_permissions() -> serde_json::Value {
             "screenRecording": true,
         })
     }
+}
+#[tauri::command]
+fn get_idle_time(app: AppHandle) -> Option<u64> {
+    let state = app.state::<AppState>();
+    let time = *state.current_idle_time.lock().unwrap();
+    println!("Rust: get_idle_time called, returning: {:?}", time);
+    time
 }
 
 #[tauri::command]
@@ -408,6 +425,7 @@ pub fn run() {
             db_path: Mutex::new(PathBuf::new()),
             idle_state: idle_state.clone(),
             client: reqwest::Client::new(),
+            current_idle_time: Mutex::new(None),
         })
         .setup(move |app| {
             let app_handle = app.handle();
@@ -446,25 +464,40 @@ pub fn run() {
             // Listen for Internal Idle Event
             let app_handle_for_idle = app_handle.clone();
             app.listen("internal:idle_gap_detected", move |event| {
+                println!(
+                    "Rust: internal:idle_gap_detected received with payload: {}",
+                    event.payload()
+                );
                 if let Ok(duration) = serde_json::from_str::<u64>(&event.payload()) {
-                    // Logic: Stop Timer -> Show Window -> Emit idle_ended
+                    println!("Rust: Decoded idle duration: {}s", duration);
+                    // 1. Store duration for command-based retrieval (race fix)
+                    {
+                        let state = app_handle_for_idle.state::<AppState>();
+                        *state.current_idle_time.lock().unwrap() = Some(duration);
+                    }
+                    // 2. Stop Timer
                     let _ = stop_timer_internal(&app_handle_for_idle);
 
                     let app_inner = app_handle_for_idle.clone();
                     let _ = app_handle_for_idle.run_on_main_thread(move || {
                         if let Some(window) = app_inner.get_webview_window("idle") {
+                            println!("Rust: Showing idle window and emitting idle_ended");
                             // Show and focus first to ensure the webview is active
                             let _ = window.show();
                             let _ = window.unminimize();
                             let _ = window.set_focus();
 
-                            // Emit to specific window - more reliable in multi-window setups
-                            let _ = window.emit("idle_ended", duration);
-
                             // Also emit globally as a fallback
                             let _ = app_inner.emit("idle_ended", duration);
+                        } else {
+                            println!("Rust: ERR: idle window not found!");
                         }
                     });
+                } else {
+                    println!(
+                        "Rust: ERR: Failed to decode idle duration from payload: {}",
+                        event.payload()
+                    );
                 }
             });
 
@@ -662,7 +695,8 @@ pub fn run() {
             get_project_today_total,
             check_permissions,
             open_permissions_settings,
-            get_timer_status
+            get_timer_status,
+            get_idle_time
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
