@@ -484,6 +484,10 @@ pub fn run() {
         })
         .setup(move |app| {
             let app_handle = app.handle();
+
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let app_data_dir = app
                 .path()
                 .app_data_dir()
@@ -790,7 +794,13 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_sql::Builder::default().build());
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .build()
+        );
 
     #[cfg(target_os = "macos")]
     {

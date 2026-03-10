@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { Routes, Route } from "react-router-dom";
 import Login from "./Login";
 import { fetchProjects } from "./services/auth";
@@ -9,6 +10,8 @@ import { IdleWindow } from "./components/IdleWindow";
 import { QuitWindow } from "./components/QuitWindow";
 import { PermissionsModal } from "./components/PermissionsModal";
 import { BreakModal } from "./components/BreakModal";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 interface Project {
   id: string;
@@ -98,6 +101,23 @@ function MainWindow() {
     }
   }
 
+  const checkForUpdates = async () => {
+    try {
+      console.log("Checking for updates")
+      const update = await check();
+      if (update) {
+        console.log(`Update to ${update.version} available!`);
+        await update.downloadAndInstall();
+        // This will restart the app automatically after the install
+        await relaunch();
+      } else {
+        console.log("No update found.");
+      }
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
   const totalToday = useMemo(() => {
     let totalSeconds = 0;
     Object.values(projectTimes).forEach(timeStr => {
@@ -112,6 +132,7 @@ function MainWindow() {
   }, [projectTimes]);
 
   useEffect(() => {
+    checkForUpdates();
     // Listeners setup only
     if (!initialized.current) {
       initialized.current = true;
@@ -396,12 +417,25 @@ function MainWindow() {
 }
 
 function App() {
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(console.error);
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/" element={<MainWindow />} />
-      <Route path="/idle" element={<IdleWindow />} />
-      <Route path="/quit" element={<QuitWindow />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<MainWindow />} />
+        <Route path="/idle" element={<IdleWindow />} />
+        <Route path="/quit" element={<QuitWindow />} />
+      </Routes>
+      {version && (
+        <div className="fixed bottom-1 right-2 text-[10px] text-gray-400 font-mono tracking-wider z-50 opacity-70 pointer-events-none">
+          Version: v{version}
+        </div>
+      )}
+    </>
   );
 }
 

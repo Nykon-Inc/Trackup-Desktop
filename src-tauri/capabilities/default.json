@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "core:window:default"
+    "core:window:default",
+    "updater:default"
   ]
 }
