@@ -1,7 +1,7 @@
 {
-  "name": "trackup",
+  "name": "watchtower",
   "private": true,
-  "version": "3.5.12",
+  "version": "3.5.18",
   "type": "module",
   "scripts": {
     "dev": "vite",

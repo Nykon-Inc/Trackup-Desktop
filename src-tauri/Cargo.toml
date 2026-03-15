@@ -1,7 +1,7 @@
 [package]
-name = "trackup"
+name = "watchtower"
 version = "0.1.0"
-description = "Trackup Desktop App"
+description = "Watchtower Desktop App"
 authors = ["you"]
 edition = "2021"
 

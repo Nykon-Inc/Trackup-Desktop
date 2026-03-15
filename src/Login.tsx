@@ -45,7 +45,7 @@ export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                     </div>
-                    <h2 className="text-xl font-bold text-gray-900">Welcome to Trackup</h2>
+                    <h2 className="text-xl font-bold text-gray-900">Welcome to Watchtower</h2>
                     <p className="text-xs text-gray-500 mt-1">Sign in to your account</p>
                 </div>
 
@@ -100,7 +100,7 @@ export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
                 </form>
 
                 <div className="mt-6 text-center text-[10px] text-gray-400 tracking-widest uppercase">
-                    Trackup Desktop 2.0
+                    Watchtower Desktop 2.0
                 </div>
             </div>
         </LoginLayout>

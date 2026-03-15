@@ -268,7 +268,7 @@ function MainWindow() {
   const currentProject = user.projects.find(p => p.id === user.current_project_id) || user.projects[0];
 
   return (
-    <div className="flex h-screen bg-white text-gray-800 font-sans selection:bg-primary/10">
+    <div className="flex h-screen bg-[#F8FAFC] text-gray-800 font-sans selection:bg-primary/10 overflow-hidden">
       {showPermissions && <PermissionsModal onGranted={() => {
         setPermissionsGranted(true);
         setShowPermissions(false);
@@ -283,135 +283,213 @@ function MainWindow() {
         />
       )}
 
-      {/* Sidebar */}
-      <div className="w-72 shrink-0 border-r border-gray-200 flex flex-col bg-white">
-        {/* Timer Section */}
-        <div className="p-5 flex flex-col items-center border-b border-gray-100">
-          <div className="h-8">
-            {isActive && sessionType === "Project" && (
-              <button
-                onClick={() => setShowBreakModal(true)}
-                title="Take a break"
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-orange-50 text-orange-500 hover:bg-orange-100 transition-colors shadow-sm active:scale-95 cursor-pointer"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2 my-4">
-            <div className="bg-primary text-white px-5 py-1.5 rounded-full text-2xl font-mono font-bold tracking-wider shadow-sm">
-              {sessionTime === "--:--:--" ? "00:00:00" : sessionTime}
+      {/* Sidebar - Project List */}
+      <aside className="w-72 shrink-0 border-r border-gray-200 flex flex-col bg-white shadow-sm z-10">
+        <div className="p-5 border-b border-gray-50">
+          <div className="flex items-center gap-2.5 mb-6">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-gray-900 tracking-tight">WATCHTOWER</h1>
+              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Time Track</p>
             </div>
           </div>
 
-          <h2 className="text-base font-bold text-gray-900 mb-5 truncate max-w-full" title={sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}>
-            {sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}
-          </h2>
-
-          <button
-            onClick={toggleTimer}
-            disabled={!permissionsGranted && !isActive}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer ${(isActive) ? 'bg-red-500 hover:bg-red-600' : (!permissionsGranted ? 'bg-gray-300 cursor-not-allowed text-gray-400 shadow-none' : 'bg-primary hover:opacity-90')}`}
-          >
-            {isActive ? (
-              // Stop Icon
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="7" y="7" width="10" height="10" rx="1" />
-              </svg>
-            ) : (
-              // Play Icon
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white ml-1" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            )}
-          </button>
-
-          <div className="flex items-center justify-between w-full mt-6 text-[11px] text-gray-400 font-semibold px-2">
-            <span>
-              {currentProject?.weeklyLimitHours
-                ? `${(currentProject.totalHoursThisWeek || 0).toFixed(2)} / ${currentProject.weeklyLimitHours} hrs`
-                : "NO LIMITS"}
-            </span>
-            <span>TODAY: {totalToday}</span>
+          <div className="relative group">
+            <input
+              type="text"
+              placeholder="Search projects..."
+              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-lg text-xs placeholder-gray-400 focus:outline-none focus:bg-white focus:border-primary/30 focus:ring-4 focus:ring-primary/5 transition-all duration-200"
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 absolute left-3 top-2.5 text-gray-400 group-focus-within:text-primary transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
           </div>
         </div>
 
-        {/* Project List Section */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="p-3">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search projects"
-                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-transparent rounded-lg text-[13px] text-gray-700 placeholder-gray-400 focus:outline-none focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-              />
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
+        <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar">
+          <div className="flex items-center justify-between px-2 mb-3">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">My Projects</span>
+            <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold">{sortedProjects.length}</span>
           </div>
 
-          <div className="overflow-y-auto flex-1 px-1.5 pb-3">
-            <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-              My Projects
-            </div>
-
-
-            <div className="space-y-0.5">
-              {sortedProjects.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => handleProjectSelect(p.id)}
-                  className={`group flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${user.current_project_id === p.id ? 'bg-primary/5 text-primary' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    {user.current_project_id === p.id ? (
-                      <div className="w-1 h-1 rounded-full bg-primary shrink-0" />
-                    ) : (
-                      <div className="w-1 h-1 opacity-0 group-hover:opacity-100 rounded-full bg-gray-300 shrink-0 transition-opacity" />
-                    )}
-                    <span className="truncate text-[13px] font-medium">{p.name}</span>
-                  </div>
-                  <div className="text-[11px] text-gray-400 font-mono ml-2">
-                    {projectTimes[p.id]?.split(':').slice(0, 2).join(':') || '0:00'}
-                  </div>
+          <div className="space-y-1 pb-4">
+            {sortedProjects.map(p => (
+              <div
+                key={p.id}
+                onClick={() => handleProjectSelect(p.id)}
+                className={`group relative flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all duration-200 border ${user.current_project_id === p.id
+                  ? 'bg-white border-primary shadow-sm ring-2 ring-primary/5'
+                  : 'bg-transparent border-transparent hover:bg-gray-50 hover:border-gray-100'}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${user.current_project_id === p.id ? 'bg-primary animate-pulse' : 'bg-gray-300'}`} />
+                  <span className={`truncate text-xs font-semibold transition-colors ${user.current_project_id === p.id ? 'text-gray-900' : 'text-gray-600 group-hover:text-gray-900'}`}>{p.name}</span>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* User Profile / Logout */}
-          <div className="p-3 border-t border-gray-100 bg-gray-50/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-white text-[11px] font-bold shadow-sm">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[13px] font-bold text-gray-700 leading-none">{user.name}</span>
-                  <span className="text-[10px] text-gray-400 font-medium mt-0.5">Free Plan</span>
+                <div className="text-[10px] font-bold text-gray-400 font-mono tracking-tighter">
+                  {projectTimes[p.id]?.split(':').slice(0, 2).join(':') || '0:00'}
                 </div>
               </div>
-              <button
-                onClick={handleLogout}
-                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
-                title="Logout"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* User Profile */}
+        <div className="p-4 mx-4 mb-6 bg-gray-50 rounded-2xl border border-gray-100">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-xl bg-linear-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-bold shadow-md">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="absolute -right-1 -bottom-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full" title="Online" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-bold text-gray-900 leading-none">{user.name}</span>
+                <span className="text-[10px] text-gray-500 font-medium mt-1">Workspace Admin</span>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all rounded-lg cursor-pointer"
+              title="Logout"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#F8FAFC] relative overflow-hidden">
+        {/* Decorative elements */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -mr-48 -mt-48" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-secondary/5 rounded-full blur-3xl -ml-32 -mb-32" />
+
+
+        {/* Dashboard Content */}
+        <div className="flex-1 overflow-y-auto p-4 z-10 custom-scrollbar bg-gray-50/30">
+          <div className="max-w-7xl mx-auto space-y-4">
+
+            {/* Ultra-Dense Session Bar */}
+            <div className="bg-white p-1.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 pl-2">
+                <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-primary animate-pulse' : 'bg-gray-300'}`} />
+                <div className="min-w-0">
+                  <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter leading-none block mb-0.5">Focusing on</span>
+                  <h3 className="text-xs font-bold text-gray-900 truncate max-w-[180px]" title={sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}>
+                    {sessionType === "WorkBreakPolicy" ? (activeBreakName || "Break") : (currentProject?.name || "Select Project")}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="flex-1 flex items-center justify-center gap-6">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xl font-mono font-bold text-gray-900 tabular-nums tracking-tighter">
+                    {sessionTime === "--:--:--" ? "00:00:00" : sessionTime}
+                  </span>
+                  <span className="text-[10px] font-bold text-primary uppercase">Duration</span>
+                </div>
+                <div className="h-6 w-px bg-gray-100" />
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase leading-none block">Today</span>
+                    <span className="text-[11px] font-bold text-gray-700">{projectTimes[currentProject?.id || '']?.split(':').slice(0, 2).join(':') || '00:00'}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase leading-none block">Weekly</span>
+                    <span className="text-[11px] font-bold text-gray-700">{((currentProject?.totalHoursThisWeek || 0)).toFixed(1)}h</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 pr-1">
+                {isActive && sessionType === "Project" && (
+                  <button
+                    onClick={() => setShowBreakModal(true)}
+                    className="h-8 px-3 rounded-lg text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 transition-all cursor-pointer border border-orange-100"
+                  >
+                    BREAK
+                  </button>
+                )}
+                <button
+                  onClick={toggleTimer}
+                  disabled={!permissionsGranted && !isActive}
+                  className={`h-8 px-5 rounded-lg flex items-center justify-center gap-2 transition-all font-bold text-[10px] cursor-pointer ${isActive
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : !permissionsGranted
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                      : 'bg-primary hover:opacity-95 text-white'
+                    }`}
+                >
+                  {isActive ? 'STOP' : 'START SESSION'}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-4">
+              {/* Main Content Area */}
+              <div className="col-span-12 lg:col-span-8">
+                <div className="bg-white rounded-xl border border-gray-100 shadow-xs overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+                    <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Recent Activity</h3>
+                  </div>
+                  <div className="p-1">
+                    {user.projects.slice(0, 6).map((p, idx) => (
+                      <div key={p.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-all group">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-1.5 h-1.5 rounded-full ${idx === 0 ? 'bg-primary' : 'bg-gray-200'}`} />
+                          <span className="text-xs font-semibold text-gray-700">{p.name}</span>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <span className="text-[11px] font-mono font-medium text-gray-400">2h ago</span>
+                          <span className="text-xs font-bold text-gray-900 w-16 text-right">{projectTimes[p.id]?.split(':').slice(0, 2).join(':') || "00:00"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Sidebar Stats Area */}
+              <div className="col-span-12 lg:col-span-4 space-y-3">
+                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-xs">
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-3">Today's Total</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-2xl font-mono font-bold text-gray-900">{totalToday}h</span>
+                      <span className="text-[10px] font-bold text-green-500 bg-green-50 px-1.5 py-0.5 rounded-md">ON TRACK</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-gray-50 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-1000"
+                        style={{ width: `${Math.min((parseFloat(totalToday.replace(':', '.')) / 8) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-medium">Daily goal: 8.0 hours</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">System Status</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-gray-900 uppercase">Online</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col bg-gray-50/50">
 
-      </div>
+
+      </main>
     </div>
   );
 }

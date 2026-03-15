@@ -61,7 +61,7 @@ export function PermissionsModal({ onGranted }: { onGranted: () => void }) {
                         </div>
                         <h2 className="text-xl font-bold text-gray-900 tracking-tight">System Permissions</h2>
                         <p className="text-gray-500 mt-1 text-[11px] leading-normal">
-                            StaffWatch requires these permissions to track your activity and provide accurate work logs.
+                            Watchtower requires these permissions to track your activity and provide accurate work logs.
                         </p>
                     </div>
 

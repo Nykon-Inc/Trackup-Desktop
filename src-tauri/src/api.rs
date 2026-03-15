@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use tauri::{async_runtime, AppHandle, Emitter, Manager, Runtime};
 
-pub const BASE_URL: &str = "https://trackup.staging-api.nykon.cloud/v1";
+pub const BASE_URL: &str = "https://watchtower.staging-api.nykon.cloud/v1";
 
 pub async fn request<R: Runtime, T: serde::Serialize>(
     app: &AppHandle<R>,

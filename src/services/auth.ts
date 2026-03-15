@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://trackup.staging-api.nykon.cloud';
+const API_URL = import.meta.env.VITE_API_URL || 'https://watchtower.staging-api.nykon.cloud';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -84,7 +84,7 @@ export interface WorkBreakPolicy {
 }
 
 export const fetchProjects = async (token: string) => {
-    const projectsResponse = await api.get<{ results: Project[] }>(`/v1/desktop/projects?projectType=trackup`, {
+    const projectsResponse = await api.get<{ results: Project[] }>(`/v1/desktop/projects?projectType=watchtower`, {
         headers: {
             Authorization: `Bearer ${token}`,
             'x-app-source': 'desktop'

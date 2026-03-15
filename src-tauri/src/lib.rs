@@ -412,7 +412,7 @@ pub fn update_tray<R: Runtime>(app: &AppHandle<R>, is_logged_in: bool, email: &s
 
     if let Ok(menu) = Menu::new(app) {
         let _ = menu.append(
-            &MenuItem::with_id(app, "show", "Show StaffWatch", true, None::<&str>).unwrap(),
+            &MenuItem::with_id(app, "show", "Show Watchtower", true, None::<&str>).unwrap(),
         );
         let _ = menu
             .append(&MenuItem::with_id(app, "status", &db_status, false, None::<&str>).unwrap());
@@ -669,7 +669,7 @@ pub fn run() {
                                         || now.date_naive() != start_time_dt.date_naive();
 
                                     if (session.project_type == "Project"
-                                        || session.project_type == "trackup")
+                                        || session.project_type == "watchtower")
                                         && (duration >= 10 * 60 * 1000 || hour_changed)
                                     {
                                         // Stop current session
