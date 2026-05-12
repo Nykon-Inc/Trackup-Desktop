@@ -1,14 +1,20 @@
 {
   "name": "watchtower",
   "private": true,
-  "version": "3.5.18",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:staging": "tsc && vite build --mode staging",
+    "build:prod": "tsc && vite build --mode production",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:build": "tauri build",
+    "tauri:build:staging": "tauri build --config '{\"build\": {\"beforeBuildCommand\": \"pnpm build:staging\", \"frontendDist\": \"../watchtower-staging\"}}'",
+    "tauri:build:prod": "tauri build --config '{\"build\": {\"beforeBuildCommand\": \"pnpm build:prod\", \"frontendDist\": \"../watchtower-prod\"}}'",
+    "tauri:build:staging:upload": "pnpm tauri:build:staging && NODE_ENV=staging node scripts/upload-release.mjs $1",
+    "tauri:build:prod:upload": "pnpm tauri:build:prod && NODE_ENV=production node scripts/upload-release.mjs $1",
     "tauri:build:upload": "tauri build && node scripts/upload-release.mjs $1"
   },
   "dependencies": {
