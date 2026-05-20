@@ -39,6 +39,8 @@ interface TimeUpdatePayload {
   targetName: string | null;
 }
 
+let hasCheckedForUpdates = false;
+
 function MainWindow() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +104,8 @@ function MainWindow() {
   }
 
   const checkForUpdates = async () => {
+    if (hasCheckedForUpdates) return;
+    hasCheckedForUpdates = true;
     try {
       console.log("Checking for updates")
       const update = await check();
@@ -115,6 +119,7 @@ function MainWindow() {
       }
     } catch (error) {
       console.log(error)
+      hasCheckedForUpdates = false; // Reset on error so it can be retried if needed
     }
   }
 
@@ -132,10 +137,10 @@ function MainWindow() {
   }, [projectTimes]);
 
   useEffect(() => {
-    checkForUpdates();
     // Listeners setup only
     if (!initialized.current) {
       initialized.current = true;
+      checkForUpdates();
       checkAuth();
     }
     const unlistenLogin = listen("request-login", () => checkAuth());
