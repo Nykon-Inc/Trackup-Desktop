@@ -15,12 +15,12 @@
     "tauri:dev": "tauri dev",
     "tauri:dev:staging": "cross-env NODE_ENV=staging tauri dev --config \"{\\\"build\\\": {\\\"beforeDevCommand\\\": \\\"pnpm dev:staging\\\"}}\"",
     "tauri:dev:prod": "cross-env NODE_ENV=production tauri dev --config \"{\\\"build\\\": {\\\"beforeDevCommand\\\": \\\"pnpm dev:prod\\\"}}\"",
-    "tauri:build": "tauri build",
-    "tauri:build:staging": "cross-env NODE_ENV=staging tauri build --config \"{\\\"build\\\": {\\\"beforeBuildCommand\\\": \\\"pnpm build:staging\\\", \\\"frontendDist\\\": \\\"../watchtower-staging\\\"}}\"",
-    "tauri:build:prod": "cross-env NODE_ENV=production tauri build --config \"{\\\"build\\\": {\\\"beforeBuildCommand\\\": \\\"pnpm build:prod\\\", \\\"frontendDist\\\": \\\"../watchtower-prod\\\"}}\"",
-    "tauri:build:staging:upload": "pnpm tauri:build:staging && cross-env NODE_ENV=staging node scripts/upload-release.mjs $1",
-    "tauri:build:prod:upload": "pnpm tauri:build:prod && cross-env NODE_ENV=production node scripts/upload-release.mjs $1",
-    "tauri:build:upload": "tauri build && node scripts/upload-release.mjs $1"
+    "tauri:build": "dotenv -e .env.build -- tauri build",
+    "tauri:build:staging": "dotenv -e .env.build -- cross-env NODE_ENV=staging tauri build --config \"{\\\"build\\\": {\\\"beforeBuildCommand\\\": \\\"pnpm build:staging\\\", \\\"frontendDist\\\": \\\"../watchtower-staging\\\"}}\"",
+    "tauri:build:prod": "dotenv -e .env.build -- cross-env NODE_ENV=production tauri build --config \"{\\\"build\\\": {\\\"beforeBuildCommand\\\": \\\"pnpm build:prod\\\", \\\"frontendDist\\\": \\\"../watchtower-prod\\\"}}\"",
+    "tauri:build:staging:upload": "pnpm tauri:build:staging && dotenv -e .env.build -- cross-env NODE_ENV=staging node scripts/upload-release.mjs $1",
+    "tauri:build:prod:upload": "pnpm tauri:build:prod && dotenv -e .env.build -- cross-env NODE_ENV=production node scripts/upload-release.mjs $1",
+    "tauri:build:upload": "dotenv -e .env.build -- tauri build && node scripts/upload-release.mjs $1"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -43,6 +43,7 @@
     "autoprefixer": "^10.4.23",
     "cross-env": "^10.1.0",
     "dotenv": "^17.3.1",
+    "dotenv-cli": "^11.0.0",
     "globby": "^16.1.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
