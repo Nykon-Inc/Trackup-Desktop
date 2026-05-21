@@ -332,6 +332,33 @@ pub fn stop_all_active_sessions(conn: &Connection) -> Result<(), rusqlite::Error
     Ok(())
 }
 
+pub fn recover_active_sessions(conn: &Connection) -> Result<(), rusqlite::Error> {
+    println!("DB: Recovering active sessions on startup");
+    let updated = conn.execute(
+        "UPDATE sessions 
+         SET is_active = 0, 
+             end_time = COALESCE(end_time, start_time) 
+         WHERE is_active = 1",
+        [],
+    )?;
+    println!("DB: Recovered {} active sessions", updated);
+
+    // Correct any existing corrupted sessions that have a duration > 10 minutes (600,000 ms).
+    // Cap their end_time to start_time + 10 minutes.
+    let fixed = conn.execute(
+        "UPDATE sessions 
+         SET end_time = start_time + 600000 
+         WHERE (project_type = 'Project' OR project_type = 'watchtower') 
+           AND end_time IS NOT NULL 
+           AND (end_time - start_time) > 600000",
+        [],
+    )?;
+    if fixed > 0 {
+        println!("DB: Fixed {} corrupted sessions with duration > 10 minutes", fixed);
+    }
+    Ok(())
+}
+
 pub fn create_imported_session(conn: &Connection, session: &crate::models::SyncSession) -> Result<(), rusqlite::Error> {
     println!("DB: Importing session {}", session.uuid);
     conn.execute(
