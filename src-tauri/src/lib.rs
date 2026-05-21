@@ -506,7 +506,7 @@ pub fn run() {
 
             // Ensure all timers are stopped on startup globally
             if let Ok(conn) = Connection::open(&db_path) {
-                let _ = db::stop_all_active_sessions(&conn);
+                let _ = db::recover_active_sessions(&conn);
             }
 
             // process pending screenshots on startup
